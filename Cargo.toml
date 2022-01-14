@@ -28,6 +28,9 @@ symbolic_expressions = "5"
 rayon = "1"
 smallvec = { version = "1.6", features = ["union", "const_generics"] }
 
+evm-core = { git = "https://github.com/oflatt/evm", commit = "8a8cac7aaa49cc91649ba3f420965af1a592952e" }
+primitive-types = "0.10.1"
+
 [dependencies.egg]
 git = "https://github.com/egraphs-good/egg"
 rev = "484fd6eec831a4078455ac47ef1172ede1b03dbf" # send sync

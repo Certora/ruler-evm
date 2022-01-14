@@ -23,6 +23,7 @@ mod convert_sexp;
 mod derive;
 mod equality;
 mod util;
+pub mod evm_eval;
 
 /// Faster hashMap implementation used in rustc
 pub type HashMap<K, V> = rustc_hash::FxHashMap<K, V>;
@@ -36,6 +37,7 @@ pub type IndexMap<K, V> = indexmap::IndexMap<K, V, BuildHasherDefault<rustc_hash
 pub use bv::*;
 pub use equality::*;
 pub use util::*;
+pub use evm_eval::*;
 
 /// Return the `i`th letter from the English alphabet.
 pub fn letter(i: usize) -> &'static str {
