@@ -1,4 +1,4 @@
-use ruler::EVM;
+use ruler::{EVM, SynthLanguage};
 
 //Entry Point
 fn main() {

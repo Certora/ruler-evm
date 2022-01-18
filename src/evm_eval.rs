@@ -47,10 +47,15 @@ define_language! {
     }
 }
 
-impl EVM {
-    pub const ZERO: Self = EVM::new(U256::zero());
-    pub const MAX: Self = EVM::new(U256::zero().overflowing_sub(U256::one()).0);
+fn random_256(rng: &mut Pcg64) -> U256 {
+    let lower = U256::from_dec_str(&rng.gen::<u128>().to_string()).unwrap();
+    let dummy_vec: [Id; 2] = [Id::from(0), Id::from(0)];
+    let upper = eval_evm(&EVM::ShiftLeft(dummy_vec), Some(lower), Some(U256::from_dec_str("128").unwrap())).unwrap();
+    let lower_2 = U256::from_dec_str(&rng.gen::<u128>().to_string()).unwrap();
+    eval_evm(&EVM::BWOr(dummy_vec), Some(lower_2), Some(upper)).unwrap()
+}
 
+impl EVM {
     pub fn new(n: U256) -> Self {
         EVM::Num(n)
     }
@@ -76,14 +81,12 @@ impl SynthLanguage for EVM {
             }
             _ => {
                 let mut cvec = vec![];
-                let mut enode_children = vec![];
-                self.for_each(|child| enode_children.push(child));
                 for i in 0..cvec_len {
                     let first = if self.len() > 0 {
-                        v(&enode_children[0])[i]
+                        v(&self.children()[0])[i].clone()
                     } else { None };
                     let second = if self.len() > 1 {
-                        v(&enode_children[1])[i]
+                        v(&self.children()[1])[i].clone()
                     } else { None };
                                         
                     cvec.push(eval_evm(self, first, second))
@@ -120,9 +123,8 @@ impl SynthLanguage for EVM {
     fn init_synth(synth: &mut Synthesizer<Self>) {
         let mut consts: Vec<Option<U256>> = vec![];
         for i in 0..synth.params.important_cvec_offsets {
-            let i = EVM::from(U256::from(i));
             consts.push(Some(U256::zero().overflowing_add(U256::from(i)).0));
-            consts.push(Some(U256::zero().overflowing_sub(U256::from(i+1)).0));
+            consts.push(Some(U256::zero().overflowing_sub(U256::from((i+1))).0));
         }
         consts.sort();
         consts.dedup();
@@ -131,7 +133,7 @@ impl SynthLanguage for EVM {
         // add the necessary random values, if any
         for row in consts.iter_mut() {
             let n_samples = synth.params.n_samples;
-            let vals = std::iter::repeat_with(|| synth.rng.gen::<U256>());
+            let vals = std::iter::repeat_with(|| random_256(&mut synth.rng));
             row.extend(vals.take(n_samples).map(Some));
         }
 
@@ -201,74 +203,29 @@ impl SynthLanguage for EVM {
         lhs: &Pattern<Self>,
         rhs: &Pattern<Self>,
     ) -> bool {
-        use z3::{*, ast::Ast};
+        let n = synth.params.num_fuzz;
+        let mut env = HashMap::default();
 
-        fn egg_to_z3<'a>(ctx: &'a z3::Context, expr: &[EVM]) -> z3::ast::BV<'a> {
-            let mut buf: Vec<z3::ast::BV> = vec![];
-            for node in expr.as_ref().iter() {
-                match node {
-                    EVM::Var(v) => buf.push(z3::ast::BV::new_const(&ctx, v.to_string(), N)),
-                    EVM::Num(c) => buf.push(z3::ast::BV::from_u64(&ctx, c.0 as u64, N)),
-                    EVM::Add([a, b]) => buf.push(buf[usize::from(*a)].bvadd(&buf[usize::from(*b)])),
-                    EVM::Sub([a, b]) => buf.push(buf[usize::from(*a)].bvsub(&buf[usize::from(*b)])),
-                    EVM::Mul([a, b]) => buf.push(buf[usize::from(*a)].bvmul(&buf[usize::from(*b)])),
-                    EVM::Shl([a, b]) => buf.push(buf[usize::from(*a)].bvshl(&buf[usize::from(*b)])),
-                    EVM::Shr([a, b]) => buf.push(buf[usize::from(*a)].bvlshr(&buf[usize::from(*b)])),
-                    EVM::And([a, b]) => buf.push(buf[usize::from(*a)].bvand(&buf[usize::from(*b)])),
-                    EVM::Or([a, b]) => buf.push(buf[usize::from(*a)].bvor(&buf[usize::from(*b)])),
-                    EVM::Xor([a, b]) => buf.push(buf[usize::from(*a)].bvxor(&buf[usize::from(*b)])),
-                    EVM::Not(a) => buf.push(buf[usize::from(*a)].bvnot()),
-                    EVM::Neg(a) => buf.push(buf[usize::from(*a)].bvneg()),
-                }
-            }
-            buf.pop().unwrap()
+        for var in lhs.vars() {
+            env.insert(var, vec![]);
         }
 
-        if synth.params.use_smt {
-            let mut cfg = z3::Config::new();
-            cfg.set_timeout_msec(1000);
-            let ctx = z3::Context::new(&cfg);
-            let solver = z3::Solver::new(&ctx);
-            let lexpr = egg_to_z3(&ctx, Self::instantiate(lhs).as_ref());
-            let rexpr = egg_to_z3(&ctx, Self::instantiate(rhs).as_ref());
-            solver.assert(&lexpr._eq(&rexpr).not());
-            match solver.check() {
-                SatResult::Unsat => true,
-                SatResult::Sat => {
-                    // println!("z3 validation: failed for {} => {}", lhs, rhs);
-                    false
-                }
-                SatResult::Unknown => {
-                    synth.smt_unknown += 1;
-                    // println!("z3 validation: unknown for {} => {}", lhs, rhs);
-                    false
-                }
-            }
-        } else {
-            let n = synth.params.num_fuzz;
-            let mut env = HashMap::default();
-
-            for var in lhs.vars() {
-                env.insert(var, vec![]);
-            }
-
-            for var in rhs.vars() {
-                env.insert(var, vec![]);
-            }
-
-            for cvec in env.values_mut() {
-                cvec.reserve(n);
-                for _ in 0..n {
-                    let v = synth.rng.gen::<EVM>();
-                    cvec.push(Some(v));
-                }
-            }
-
-            let lvec = Self::eval_pattern(lhs, &env, n);
-            let rvec = Self::eval_pattern(rhs, &env, n);
-
-            lvec == rvec
+        for var in rhs.vars() {
+            env.insert(var, vec![]);
         }
+
+        for cvec in env.values_mut() {
+            cvec.reserve(n);
+            for _ in 0..n {
+                let v = random_256(&mut synth.rng);
+                cvec.push(Some(v));
+            }
+        }
+
+        let lvec = Self::eval_pattern(lhs, &env, n);
+        let rvec = Self::eval_pattern(rhs, &env, n);
+
+        lvec == rvec
     }
 }
 
@@ -297,7 +254,7 @@ pub fn eval_evm(
 
         EVM::Sub(_) => first?.overflowing_sub(second?).0,
         EVM::Div(_) => arith::div(first?, second?),
-        EVM::BWAnd(_) => first?.bitand(second?),
+        EVM::BWAnd(_) => first?.bitor(second?),
         EVM::BWOr(_) => first?.bitand(second?),
         EVM::ShiftLeft(_) => bitwise::shl(first?, second?),
         EVM::ShiftRight(_) => bitwise::shr(first?, second?),
