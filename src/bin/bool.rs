@@ -82,6 +82,12 @@ impl SynthLanguage for Math {
 
         let mut egraph = EGraph::new(SynthAnalysis {
             cvec_len: consts[0].len(),
+            constant_fold: if synth.params.no_constant_fold {
+                ConstantFoldMethod::NoFold
+            } else {
+                ConstantFoldMethod::CvecMatching
+            },
+            rule_lifting: false,
         });
 
         egraph.add(Math::Lit(false));
@@ -97,7 +103,7 @@ impl SynthLanguage for Math {
     }
 
     fn make_layer(synth: &Synthesizer<Self>, iter: usize) -> Vec<Self> {
-        let mut extract = Extractor::new(&synth.egraph, NumberOfOps);
+        let extract = Extractor::new(&synth.egraph, NumberOfOps);
 
         // maps ids to n_ops
         let ids: HashMap<Id, usize> = synth

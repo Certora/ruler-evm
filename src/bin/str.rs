@@ -234,7 +234,15 @@ impl SynthLanguage for Lang {
 
         let cvec_len = str_consts[0].len();
         println!("cvec_len: {}", cvec_len);
-        let mut egraph = EGraph::<Self, _>::new(SynthAnalysis { cvec_len });
+        let mut egraph = EGraph::new(SynthAnalysis {
+            cvec_len,
+            constant_fold: if synth.params.no_constant_fold {
+                ConstantFoldMethod::NoFold
+            } else {
+                ConstantFoldMethod::CvecMatching
+            },
+            rule_lifting: false,
+        });
 
         egraph.add(Lang::Lit(Constant::Num(-1)));
         egraph.add(Lang::Lit(Constant::Num(0)));
@@ -263,7 +271,7 @@ impl SynthLanguage for Lang {
     }
 
     fn make_layer(synth: &Synthesizer<Self>, iter: usize) -> Vec<Self> {
-        let mut extract = Extractor::new(&synth.egraph, NumberOfOps);
+        let extract = Extractor::new(&synth.egraph, NumberOfOps);
 
         // maps ids to n_ops
         let ids: HashMap<Id, usize> = synth
