@@ -3,15 +3,11 @@ use evm_core::eval::arithmetic as arith;
 use evm_core::eval::bitwise;
 use primitive_types::U256;
 use rand::prelude::*;
-use serde::{Deserialize, Serialize};
-use std::fmt;
 use std::ops::*;
 
 use egg::*;
 use crate::*;
-use std::ops::*;
 use rand_pcg::Pcg64;
-use rand::prelude::*;
 
 
 define_language! {
@@ -58,6 +54,10 @@ fn random_256(rng: &mut Pcg64) -> U256 {
 impl EVM {
     pub fn new(n: U256) -> Self {
         EVM::Num(n)
+    }
+
+    pub fn from_u64(n: u64) -> Self {
+        EVM::Num(U256::from_dec_str(&n.to_string()).unwrap())
     }
 }
 
@@ -124,7 +124,7 @@ impl SynthLanguage for EVM {
         let mut consts: Vec<Option<U256>> = vec![];
         for i in 0..synth.params.important_cvec_offsets {
             consts.push(Some(U256::zero().overflowing_add(U256::from(i)).0));
-            consts.push(Some(U256::zero().overflowing_sub(U256::from((i+1))).0));
+            consts.push(Some(U256::zero().overflowing_sub(U256::from(i+1)).0));
         }
         consts.sort();
         consts.dedup();
@@ -139,7 +139,18 @@ impl SynthLanguage for EVM {
 
         let mut egraph = EGraph::new(SynthAnalysis {
             cvec_len: consts[0].len(),
+            constant_fold: if synth.params.no_constant_fold {
+                ConstantFoldMethod::NoFold
+            } else {
+                ConstantFoldMethod::CvecMatching
+            },
+            rule_lifting: false,
         });
+
+        egraph.add(EVM::from_u64(0));
+        egraph.add(EVM::Num(U256::zero().overflowing_sub(U256::one()).0));
+        egraph.add(EVM::Num(U256::one()));
+        egraph.add(EVM::Num(U256::one().overflowing_add(U256::one()).0));
 
         for i in 0..synth.params.variables {
             let var = Symbol::from(letter(i));
@@ -151,7 +162,7 @@ impl SynthLanguage for EVM {
     }
 
     fn make_layer(synth: &Synthesizer<Self>, iter: usize) -> Vec<Self> {
-        let mut extract = Extractor::new(&synth.egraph, NumberOfOps);
+        let extract = Extractor::new(&synth.egraph, NumberOfOps);
 
         // maps ids to n_ops
         let ids: HashMap<Id, usize> = synth
