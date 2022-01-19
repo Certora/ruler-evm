@@ -1501,9 +1501,10 @@ impl<L: SynthLanguage> Synthesizer<L> {
             };
 
             log::info!(
-                "Minimizing... threw away {} rules, {} / {} remain",
+                "Minimizing... threw away {} rules, found {} rules so far, {} / {} remain",
                 old_len - new_eqs.len(),
                 new_eqs.len(),
+                self.all_eqs.len() + keepers.len(),
                 initial_len,
             );
         }

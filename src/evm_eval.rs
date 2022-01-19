@@ -4,9 +4,6 @@ use evm_core::eval::bitwise;
 use primitive_types::U256;
 use rand::prelude::*;
 use std::ops::*;
-use std::io::prelude::*;
-
-use std::fs::File;
 
 use egg::*;
 use crate::*;
