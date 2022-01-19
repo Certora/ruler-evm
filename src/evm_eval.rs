@@ -4,6 +4,9 @@ use evm_core::eval::bitwise;
 use primitive_types::U256;
 use rand::prelude::*;
 use std::ops::*;
+use std::io::prelude::*;
+
+use std::fs::File;
 
 use egg::*;
 use crate::*;
@@ -364,4 +367,54 @@ pub fn eval_evm(
         EVM::LNot(_) => bool_to_u256(!u256_to_bool(first?)),
         EVM::BWNot(_) => bitwise::not(first?),
     })
+}
+
+use serde_json::{Value};
+
+pub fn get_pregenerated_rules() -> Vec<(String, String)> {
+    let contents = include_str!("../out.json");
+    let json = serde_json::from_str(&contents).unwrap();
+    match json {
+        Value::Object(map) => {
+            let eqs = map.get("all_eqs").unwrap();
+            if let Value::Array(rules) = eqs {
+                let mut res = vec![];
+
+                for entry in rules {
+                    if let Value::Object(rule) = entry {
+                        let lhs = rule.get("lhs").unwrap();
+                        let rhs = rule.get("rhs").unwrap();
+                        if let Value::String(lhs) = lhs {
+                            if let Value::String(rhs) = rhs {
+                                if let Value::Bool(bidrectional) = rule.get("bidirectional").unwrap() {
+                                    res.push((lhs.to_string(), rhs.to_string()));
+                                    if *bidrectional {
+                                        res.push((rhs.to_string(), lhs.to_string()));
+                                    }
+                                }
+                                
+                            }
+                        }
+                    } else {
+                        panic!("invalid entry in rules");
+                    }
+                }
+
+                res
+            } else {
+                panic!("expected array from json all_eqs");
+            }
+        }
+        _ => panic!("invalid json"),
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    #[test]
+    fn test_evm() {
+        get_pregenerated_rules();
+    }
 }
