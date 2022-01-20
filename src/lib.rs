@@ -856,28 +856,36 @@ impl<L: SynthLanguage> Synthesizer<L> {
         for iter in 1..=self.params.iters {
             log::info!("[[[ Iteration {} ]]]", iter);
             let layer = self.enumerate_layer(iter);
-            let chunk_count = div_up(layer.len(), self.params.node_chunk_size);
 
+            if iter > self.params.parallelize_above_iter {
+                let parallel_chunks = layer.chunks((layer.len() / self.params.parallel_num_chunks) + 1).collect();
+                let (parallel_eqs, parallel_poison, newself) = self.run_chunks_parallel(&parallel_chunks, iter, poison_rules);
+                self = newself;
+                poison_rules = parallel_poison;
+                self.new_eqs.extend(parallel_eqs.clone());
+                self.all_eqs.extend(parallel_eqs);
 
-            let all_chunks: Vec<&[L]> = layer.chunks(self.params.node_chunk_size).collect();
+                let mut temp = EGraph::<L, SynthAnalysis>::new(SynthAnalysis::default());
+                std::mem::swap(&mut temp, &mut self.egraph);
+                Synthesizer::add_chunk(&mut temp, &layer, iter > self.params.ema_above_iter);
+                if !self.params.no_run_rewrites {
+                    self.run_rewrites(&mut temp);
+                }
+                std::mem::swap(&mut temp, &mut self.egraph);
+            } else {
+                let all_chunks: Vec<&[L]> = layer.chunks(self.params.node_chunk_size).collect();
 
-            let (parallel_eqs, parallel_poison, newself) = self.run_chunks_parallel(&all_chunks, iter, poison_rules);
-            self = newself;
-            poison_rules = parallel_poison;
-            
-            self.new_eqs.extend(parallel_eqs.clone());
-            self.all_eqs.extend(parallel_eqs);
-
-            log::info!("[ Running all chunks single-threaded ]");
-            let mut temp = EGraph::<L, SynthAnalysis>::new(SynthAnalysis::default());
-            std::mem::swap(&mut temp, &mut self.egraph);
-            for chunk in all_chunks {
-                let (new_rules, new_poison) = self.run_one_chunk(&mut temp, &chunk, iter, &poison_rules);
-                poison_rules = new_poison;
-                self.new_eqs.extend(new_rules.clone());
-                self.all_eqs.extend(new_rules);
+                log::info!("[ Running all chunks single-threaded ]");
+                let mut temp = EGraph::<L, SynthAnalysis>::new(SynthAnalysis::default());
+                std::mem::swap(&mut temp, &mut self.egraph);
+                for chunk in all_chunks {
+                    let (new_rules, new_poison) = self.run_one_chunk(&mut temp, &chunk, iter, &poison_rules);
+                    poison_rules = new_poison;
+                    self.new_eqs.extend(new_rules.clone());
+                    self.all_eqs.extend(new_rules);
+                }
+                std::mem::swap(&mut temp, &mut self.egraph);
             }
-            std::mem::swap(&mut temp, &mut self.egraph);
         }
 
         let time = t.elapsed().as_secs_f64();
@@ -1188,6 +1196,8 @@ pub struct SynthParams {
     /// 0 is unlimited
     #[clap(long, default_value = "0")]
     pub eq_chunk_size: usize,
+    #[clap(long, default_value = "100")]
+    pub parallel_num_chunks: usize,
     /// disallows enumerating terms with constants past this iteration
     #[clap(long, default_value = "999999")]
     pub no_constants_above_iter: usize,
@@ -1202,6 +1212,8 @@ pub struct SynthParams {
     /// modulo alpha renaming
     #[clap(long, default_value = "999999")]
     pub ema_above_iter: usize,
+    #[clap(long, default_value = "999999")]
+    pub parallelize_above_iter: usize,
     // disabled operators during enumeration
     #[clap(long)]
     pub disabled_ops: Option<String>,
