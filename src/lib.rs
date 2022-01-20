@@ -1503,8 +1503,8 @@ impl<L: SynthLanguage> Synthesizer<L> {
             log::info!(
                 "Minimizing... threw away {} rules, found {} rules so far, {} / {} remain",
                 old_len - new_eqs.len(),
-                new_eqs.len(),
                 self.all_eqs.len() + keepers.len(),
+                new_eqs.len(),
                 initial_len,
             );
         }
@@ -1520,7 +1520,7 @@ impl<L: SynthLanguage> Synthesizer<L> {
         &mut self,
         mut new_eqs: EqualityMap<L>,
     ) -> (EqualityMap<L>, EqualityMap<L>) {
-        let step_sizes: Vec<usize> = vec![100, 10, 1];
+        let step_sizes: Vec<usize> = vec![20, 10, 1];
         let mut bads = EqualityMap::default();
         let mut should_validate = true;
         let mut step_idx = 0;
