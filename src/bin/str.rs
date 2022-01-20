@@ -339,7 +339,7 @@ impl SynthLanguage for Lang {
     }
 
     fn is_valid(
-        _synth: &mut Synthesizer<Self>,
+        _synth: &Synthesizer<Self>,
         _lhs: &Pattern<Self>,
         _rhs: &Pattern<Self>,
     ) -> bool {

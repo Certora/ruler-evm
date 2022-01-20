@@ -363,7 +363,7 @@ impl SynthLanguage for Math {
     /// Depending on the value of `use_smt`, it either uses
     /// Z3 to verify the rules or fuzzing to validate them.
     fn is_valid(
-        synth: &mut Synthesizer<Self>,
+        synth: &Synthesizer<Self>,
         lhs: &egg::Pattern<Self>,
         rhs: &egg::Pattern<Self>,
     ) -> bool {
@@ -385,7 +385,8 @@ impl SynthLanguage for Math {
                     false
                 }
                 SatResult::Unknown => {
-                    synth.smt_unknown += 1;
+                    // TODO
+                    //synth.smt_unknown += 1;
                     // println!("z3 validation: unknown for {} => {}", lhs, rhs);
                     false
                 }
@@ -404,7 +405,7 @@ impl SynthLanguage for Math {
 
             for cvec in env.values_mut() {
                 cvec.reserve(n);
-                for s in sampler(&mut synth.rng, 8, 6, n) {
+                for s in sampler(&mut rand_pcg::Lcg128Xsl64::new(0, 0), 8, 6, n) {
                     cvec.push(Some(s));
                 }
                 // for _ in 0..n {

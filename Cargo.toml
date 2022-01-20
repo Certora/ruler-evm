@@ -27,6 +27,8 @@ rustc-hash = "1"
 symbolic_expressions = "5"
 rayon = "1"
 smallvec = { version = "1.6", features = ["union", "const_generics"] }
+threadpool = "1.8.1"
+num_cpus = "1.13.1"
 
 egg = "0.7.1"
 

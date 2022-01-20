@@ -9,6 +9,7 @@ use ordered_float::OrderedFloat;
 use rand::Rng;
 use rand_pcg::Pcg64;
 use ruler::*;
+use rand::thread_rng;
 
 /// Ordered Floats as constants.
 pub type Constant = OrderedFloat<f64>;
@@ -181,7 +182,7 @@ impl SynthLanguage for Math {
         to_add
     }
 
-    fn is_valid(synth: &mut Synthesizer<Self>, lhs: &Pattern<Self>, rhs: &Pattern<Self>) -> bool {
+    fn is_valid(synth: &Synthesizer<Self>, lhs: &Pattern<Self>, rhs: &Pattern<Self>) -> bool {
         let n = synth.params.num_fuzz;
         let mut env = HashMap::default();
 
@@ -193,7 +194,7 @@ impl SynthLanguage for Math {
             env.insert(var, vec![]);
         }
 
-        let mut cvecs = gen_samples(&mut synth.rng, n, env.keys().len());
+        let mut cvecs = gen_samples(&mut rand_pcg::Lcg128Xsl64::new(0, 0), n, env.keys().len());
         for (_, cvec) in env.iter_mut() {
             let c = cvecs.pop().unwrap();
             for v in c {

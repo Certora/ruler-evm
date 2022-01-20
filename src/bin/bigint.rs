@@ -9,6 +9,7 @@ use num::bigint::{BigInt, RandBigInt, ToBigInt};
 use rand_pcg::Pcg64;
 use z3::ast::Ast;
 use z3::*;
+use rand::thread_rng;
 
 /// Define Constant as BigInt.
 pub type Constant = BigInt;
@@ -162,7 +163,7 @@ impl SynthLanguage for Math {
     }
 
     fn is_valid(
-        synth: &mut Synthesizer<Self>,
+        synth: &Synthesizer<Self>,
         lhs: &egg::Pattern<Self>,
         rhs: &egg::Pattern<Self>,
     ) -> bool {
@@ -184,7 +185,8 @@ impl SynthLanguage for Math {
                     false
                 }
                 SatResult::Unknown => {
-                    synth.smt_unknown += 1;
+                    // TODO
+                    //synth.smt_unknown += 1
                     println!("z3 validation: unknown for {} => {}", lhs, rhs);
                     false
                 }
@@ -201,9 +203,11 @@ impl SynthLanguage for Math {
                 env.insert(var, vec![]);
             }
 
+            // TODO need to split up the rng per thread using the synth
+            let threadrng = thread_rng();
             for cvec in env.values_mut() {
                 cvec.reserve(n);
-                for s in sampler(&mut synth.rng, 32, n) {
+                for s in sampler(&mut rand_pcg::Lcg128Xsl64::new(0, 0), 32, n) {
                     cvec.push(Some(s));
                 }
             }
