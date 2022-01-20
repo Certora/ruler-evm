@@ -510,14 +510,13 @@ impl<L: SynthLanguage> Synthesizer<L> {
     /// Note that this is a pair-wise matcher which is invoked when conditional
     /// rewrite rule inference is enabled.
     #[inline(never)]
-    fn cvec_match_pair_wise(&self) -> EqualityMap<L> {
+    fn cvec_match_pair_wise(&self, egraph: &EGraph<L, SynthAnalysis>) -> EqualityMap<L> {
         let mut by_cvec: IndexMap<CVec<L>, Vec<Id>> = IndexMap::default();
 
-        let not_all_nones = self
-            .ids()
-            .filter(|id| !&self.egraph[*id].data.cvec.iter().all(|v| v == &None));
+        let not_all_nones = egraph.classes().map(|c| c.id)
+            .filter(|id| !&egraph[*id].data.cvec.iter().all(|v| v == &None));
         for id in not_all_nones {
-            let class = &self.egraph[id];
+            let class = &egraph[id];
             let cvec = vec![class.data.cvec[0].clone()];
             by_cvec.entry(cvec).or_default().push(class.id);
         }
@@ -525,7 +524,7 @@ impl<L: SynthLanguage> Synthesizer<L> {
         log::info!("# unique cvecs: {}", by_cvec.len());
 
         let mut new_eqs = EqualityMap::default();
-        let extract = Extractor::new(&self.egraph, AstSize);
+        let extract = Extractor::new(&egraph, AstSize);
 
         let compare = |cvec1: &CVec<L>, cvec2: &CVec<L>| -> bool {
             let mut _count = 0;
@@ -543,7 +542,7 @@ impl<L: SynthLanguage> Synthesizer<L> {
             let mut ids = ids.iter().copied();
             while let Some(id1) = ids.next() {
                 for id2 in ids.clone() {
-                    if compare(&self.egraph[id1].data.cvec, &self.egraph[id2].data.cvec) {
+                    if compare(&egraph[id1].data.cvec, &egraph[id2].data.cvec) {
                         let (_, e1) = extract.find_best(id1);
                         let (_, e2) = extract.find_best(id2);
                         if let Some(mut eq) = Equality::new(&e1, &e2) {
@@ -565,12 +564,12 @@ impl<L: SynthLanguage> Synthesizer<L> {
     ///
     /// Note that this is only used when conditional rewrite rule inference is disabled.
     #[inline(never)]
-    fn cvec_match(&self) -> (EqualityMap<L>, Vec<Vec<Id>>) {
+    fn cvec_match(&self, egraph: &EGraph<L, SynthAnalysis>) -> (EqualityMap<L>, Vec<Vec<Id>>) {
         // build the cvec matching data structure
         let mut by_cvec: IndexMap<&CVec<L>, Vec<Id>> = IndexMap::default();
 
-        for id in self.ids() {
-            let class = &self.egraph[id];
+        for id in egraph.classes().map(|c| c.id) {
+            let class = &egraph[id];
             if class.data.is_defined() {
                 by_cvec.entry(&class.data.cvec).or_default().push(class.id);
             }
@@ -579,7 +578,7 @@ impl<L: SynthLanguage> Synthesizer<L> {
         log::info!("# unique cvecs: {}", by_cvec.len());
 
         let mut new_eqs = EqualityMap::default();
-        let extract = Extractor::new(&self.egraph, AstSize);
+        let extract = Extractor::new(egraph, AstSize);
         for ids in by_cvec.values() {
             if self.params.linear_cvec_matching || ids.len() > 0 {
                 let mut terms_ids: Vec<_> =
@@ -621,8 +620,7 @@ impl<L: SynthLanguage> Synthesizer<L> {
         // no constants (if set)
         log::info!("Made layer of {} nodes", layer.len());
         if iter > self.params.no_constants_above_iter {
-            let constants: HashSet<Id> = self
-                .ids()
+            let constants: HashSet<Id> = self.egraph.classes().map(|c| c.id)
                 .filter_map(|id| {
                     let expr = &self.egraph[id].data.simplest;
                     if expr.as_ref().iter().any(|n| n.is_constant()) {
@@ -691,9 +689,9 @@ impl<L: SynthLanguage> Synthesizer<L> {
             let rule_discovery_before = Instant::now();
             log::info!("cvec matching...");
             let (new_eqs, _) = if self.params.no_conditionals {
-                self.cvec_match()
+                self.cvec_match(egraph)
             } else {
-                (self.cvec_match_pair_wise(), vec![])
+                (self.cvec_match_pair_wise(egraph), vec![])
             };
             let rule_discovery = rule_discovery_before.elapsed().as_secs_f64();
             log::info!("{} candidate eqs", new_eqs.len());
@@ -790,6 +788,66 @@ impl<L: SynthLanguage> Synthesizer<L> {
         (accepted_new_eqs, new_poison_rules)
     }
 
+    fn run_chunks_parallel(mut self, chunks: &Vec<&[L]>, iter: usize, mut poison_rules: HashSet<Equality<L>>) -> (EqualityMap<L>, HashSet<Equality<L>>, Self) {
+        let cpus = num_cpus::get();
+        log::info!("CPUS: {} CHUNKS: {}", cpus, chunks.len());
+
+        let (tx, rx) = channel();
+        let pool = ThreadPool::new(cpus);
+        let self_arc = Arc::new(self);
+        let poison_arc = Arc::new(poison_rules);
+
+        for chunk_num in 0..chunks.len() {
+
+            log::info!("Chunk {} / {}", chunk_num+1, chunks.len());
+            log::info!(
+                "egraph n={}, e={}",
+                self_arc.egraph.total_size(),
+                self_arc.egraph.number_of_classes(),
+            );
+
+            
+            
+            let tx = tx.clone();
+            // TODO can we get away with no clone here?
+            let chunk = chunks[chunk_num].iter().cloned().collect::<Vec<L>>();
+            let myself = Arc::clone(&self_arc);
+            let poison_rules = Arc::clone(&poison_arc);
+            pool.execute(move || {
+                tx.send(myself.run_one_chunk(&mut myself.egraph.clone(), &chunk, iter, &poison_rules)).unwrap();
+            });
+        }
+        let results = rx.iter().take(chunks.len());
+        pool.join();
+        self = match Arc::try_unwrap(self_arc) {
+            Ok(s) => s,
+            _ => panic!("Couldn't get self back out of arc"),
+        };
+
+        poison_rules = match Arc::try_unwrap(poison_arc) {
+            Ok(s) => s,
+            _ => panic!("Couldn't get poison rules back out of arc"),
+        };
+
+        let mut new_eqs = EqualityMap::default();
+        
+        for (new_rules, poison) in results {
+            new_eqs.extend(new_rules);
+            poison_rules.extend(poison);
+        }
+
+        // now minimize all the rules from all the chunks
+        log::info!("[ Minimizing Rules from All Chunks ]");
+        log::info!("Got {} rules from all chunks", new_eqs.len());
+
+        let (filtered_eqs, bads) = self.choose_eqs(new_eqs);
+        for bad in bads {
+            poison_rules.insert(bad.1);
+        }
+
+        (filtered_eqs, poison_rules, self)
+    }
+
     /// Rule synthesis for one domain, i.e., Ruler as presented in OOPSLA'21
     fn run_one_domain(mut self) -> Report<L> {
         let mut poison_rules: HashSet<Equality<L>> = HashSet::default();
@@ -799,72 +857,27 @@ impl<L: SynthLanguage> Synthesizer<L> {
             log::info!("[[[ Iteration {} ]]]", iter);
             let layer = self.enumerate_layer(iter);
             let chunk_count = div_up(layer.len(), self.params.node_chunk_size);
-            let cpus = num_cpus::get();
 
-            log::info!("CPUS: {} CHUNKS: {}", cpus, chunk_count);
-            log::info!("Filtered layer, {} nodes remaining", layer.len());
-            log::info!("Running loop with {} chunks", chunk_count);
 
-            let (tx, rx) = channel();
-            let pool = ThreadPool::new(cpus);
             let all_chunks: Vec<&[L]> = layer.chunks(self.params.node_chunk_size).collect();
-            let self_arc = Arc::new(self);
 
-            for chunk_num in 0..all_chunks.len() {
-
-                log::info!("Chunk {} / {}", chunk_num+1, chunk_count);
-                log::info!(
-                    "egraph n={}, e={}",
-                    self_arc.egraph.total_size(),
-                    self_arc.egraph.number_of_classes(),
-                );
-
-                
-                
-                let tx = tx.clone();
-                // TODO can we get away with no clone here?
-                let chunk = all_chunks[chunk_num].iter().cloned().collect::<Vec<L>>();
-                let myself = Arc::clone(&self_arc);
-                pool.execute(move || {
-                    tx.send(myself.run_one_chunk(&mut myself.egraph.clone(), &chunk, iter, &Default::default())).unwrap();
-                });
-            }
-            let results = rx.iter().take(chunk_count);
-            pool.join();
-            self = match Arc::try_unwrap(self_arc) {
-                Ok(s) => s,
-                _ => panic!("Couldn't get self back out of arc"),
-            };
-            let mut new_eqs = EqualityMap::default();
-            for (new_rules, new_poison) in results {
-                new_eqs.extend(new_rules);
-                poison_rules.extend(new_poison);
-            }
-
-            // now minimize all the rules from all the chunks
-            log::info!("[ Minimizing Rules from All Chunks ]");
-            log::info!("Got {} rules from all chunks", new_eqs.len());
-            let rule_minimize_before = Instant::now();
-            let (filtered_eqs, bads) = self.choose_eqs(new_eqs);
-            let rule_minimize = rule_minimize_before.elapsed().as_secs_f64();
-            self.new_eqs = filtered_eqs.clone();
-            self.all_eqs.extend(filtered_eqs);
+            let (parallel_eqs, parallel_poison, newself) = self.run_chunks_parallel(&all_chunks, iter, poison_rules);
+            self = newself;
+            poison_rules = parallel_poison;
+            
+            self.new_eqs.extend(parallel_eqs.clone());
+            self.all_eqs.extend(parallel_eqs);
 
             log::info!("[ Running all chunks single-threaded ]");
             let mut temp = EGraph::<L, SynthAnalysis>::new(SynthAnalysis::default());
             std::mem::swap(&mut temp, &mut self.egraph);
             for chunk in all_chunks {
                 let (new_rules, new_poison) = self.run_one_chunk(&mut temp, &chunk, iter, &poison_rules);
+                poison_rules = new_poison;
                 self.new_eqs.extend(new_rules.clone());
                 self.all_eqs.extend(new_rules);
-                poison_rules.extend(new_poison);
             }
             std::mem::swap(&mut temp, &mut self.egraph);
-
-            log::info!("Added {} rules to the poison set!", bads.len());
-            for bad in bads {
-                poison_rules.insert(bad.1);
-            }
         }
 
         let time = t.elapsed().as_secs_f64();
@@ -963,7 +976,7 @@ impl<L: SynthLanguage> Synthesizer<L> {
                 // collect any interesting unions
                 log::info!("{:?} collecting unions...", runner.stop_reason.unwrap());
                 let mut found_unions = HashMap::default();
-                for id in self.ids() {
+                for id in self.egraph.classes().map(|c| c.id) {
                     let id2 = runner.egraph.find(id);
                     found_unions.entry(id2).or_insert(vec![]).push(id);
                 }
@@ -1008,7 +1021,7 @@ impl<L: SynthLanguage> Synthesizer<L> {
                 // collect any interesting unions
                 log::info!("{:?} collecting unions...", runner.stop_reason.unwrap());
                 let mut found_unions = HashMap::default();
-                for id in self.ids() {
+                for id in self.egraph.classes().map(|c| c.id) {
                     let id2 = runner.egraph.find(id);
                     found_unions.entry(id2).or_insert(vec![]).push(id);
                 }
@@ -1061,7 +1074,7 @@ impl<L: SynthLanguage> Synthesizer<L> {
         eqs.sort_by_key(|eq| eq.score());
         eqs.reverse();
 
-        let mut ids: Vec<Id> = self.ids().collect();
+        let mut ids: Vec<Id> = self.egraph.classes().map(|c| c.id).collect();
         let extract = Extractor::new(&self.egraph, ExtractableAstSize);
         ids.sort();
         for id in ids {

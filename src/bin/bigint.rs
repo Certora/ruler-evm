@@ -9,7 +9,6 @@ use num::bigint::{BigInt, RandBigInt, ToBigInt};
 use rand_pcg::Pcg64;
 use z3::ast::Ast;
 use z3::*;
-use rand::thread_rng;
 
 /// Define Constant as BigInt.
 pub type Constant = BigInt;
@@ -204,7 +203,6 @@ impl SynthLanguage for Math {
             }
 
             // TODO need to split up the rng per thread using the synth
-            let threadrng = thread_rng();
             for cvec in env.values_mut() {
                 cvec.reserve(n);
                 for s in sampler(&mut rand_pcg::Lcg128Xsl64::new(0, 0), 32, n) {
