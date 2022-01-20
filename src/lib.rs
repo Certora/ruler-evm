@@ -855,7 +855,7 @@ impl<L: SynthLanguage> Synthesizer<L> {
             std::mem::swap(&mut temp, &mut self.egraph);
             for chunk in all_chunks {
                 let (new_rules, new_poison) = self.run_one_chunk(&mut temp, &chunk, iter, &poison_rules);
-                self.new_eqs.extend(new_rules);
+                self.new_eqs.extend(new_rules.clone());
                 self.all_eqs.extend(new_rules);
                 poison_rules.extend(new_poison);
             }
