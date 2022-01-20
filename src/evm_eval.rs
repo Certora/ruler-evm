@@ -8,8 +8,33 @@ use std::ops::*;
 use egg::*;
 use crate::*;
 use rand_pcg::Pcg64;
+use std::str::FromStr;
+use std::fmt;
 
 use z3::{SatResult, ast::Ast};
+
+// Wrap U256 so we parse correctly
+#[derive(Debug, Clone, PartialOrd, Ord, Eq, PartialEq, Hash)]
+pub struct WrappedU256 {
+    pub value: U256,
+}
+
+impl FromStr for WrappedU256 {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match U256::from_dec_str(s) {
+            Ok(v) => Ok(WrappedU256 { value: v }),
+            Err(_) => Err(()),
+        }
+    }
+}
+
+impl Display for WrappedU256 {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", self.value)
+    }
+}
 
 
 define_language! {
@@ -40,7 +65,7 @@ define_language! {
         "~" = BWNot([Id; 1]),
 
         "Havoc" = Havoc, // TODO: not the same thing!
-        Num(U256),
+        Num(WrappedU256),
         Var(egg::Symbol),
     }
 }
@@ -55,11 +80,11 @@ fn random_256(rng: &mut Pcg64) -> U256 {
 
 impl EVM {
     pub fn new(n: U256) -> Self {
-        EVM::Num(n)
+        EVM::Num(WrappedU256 { value: n })
     }
 
     pub fn from_u64(n: u64) -> Self {
-        EVM::Num(U256::from_dec_str(&n.to_string()).unwrap())
+        EVM::Num(WrappedU256 { value : U256::from_dec_str(&n.to_string()).unwrap() })
     }
 }
 
@@ -119,14 +144,14 @@ impl SynthLanguage for EVM {
 
     fn to_constant(&self) -> Option<&Self::Constant> {
         if let EVM::Num(n) = self {
-            Some(n)
+            Some(&n.value)
         } else {
             None
         }
     }
 
     fn mk_constant(c: Self::Constant) -> Self {
-        EVM::Num(c)
+        EVM::from(c)
     }
 
     fn init_synth(synth: &mut Synthesizer<Self>) {
@@ -157,9 +182,9 @@ impl SynthLanguage for EVM {
         });
 
         egraph.add(EVM::from_u64(0));
-        egraph.add(EVM::Num(U256::zero().overflowing_sub(U256::one()).0));
-        egraph.add(EVM::Num(U256::one()));
-        egraph.add(EVM::Num(U256::one().overflowing_add(U256::one()).0));
+        egraph.add(EVM::from(U256::zero().overflowing_sub(U256::one()).0));
+        egraph.add(EVM::from(U256::one()));
+        egraph.add(EVM::from(U256::one().overflowing_add(U256::one()).0));
 
         for i in 0..synth.params.variables {
             let var = Symbol::from(letter(i));
@@ -230,7 +255,7 @@ impl SynthLanguage for EVM {
             let mut buf: Vec<z3::ast::BV> = vec![];
             for node in expr.as_ref().iter() {
                 match node {
-                    EVM::Num(n) => buf.push(z3::ast::BV::from_int(&z3::ast::Int::from_str(ctx, &n.to_string()).unwrap(), 256)),
+                    EVM::Num(n) => buf.push(z3::ast::BV::from_int(&z3::ast::Int::from_str(ctx, &n.value.to_string()).unwrap(), 256)),
                     EVM::Var(v) => buf.push(z3::ast::BV::new_const(&ctx, v.to_string(), 256)),
 
                     EVM::Sub([a, b]) => buf.push(buf[usize::from(*a)].bvsub(&buf[usize::from(*b)])),
@@ -319,7 +344,7 @@ fn bool_to_u256(b: bool) -> U256 {
         U256::one()
     } else {
         U256::zero()
-    }
+    }   
 }
 
 fn u256_to_bool(u: U256) -> bool {
@@ -333,7 +358,7 @@ pub fn eval_evm(
 ) -> Option<U256> {
     Some(match op {
         EVM::Var(_) => None?,
-        EVM::Num(n) => *n,
+        EVM::Num(n) => n.value,
         EVM::Havoc => None?,
 
         EVM::Sub(_) => first?.overflowing_sub(second?).0,
