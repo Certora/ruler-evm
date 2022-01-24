@@ -30,6 +30,9 @@ smallvec = { version = "1.6", features = ["union", "const_generics"] }
 
 egg = "0.7.1"
 
+num_cpus = "1.13.1"
+threadpool = "1.8.1"
+
 #[dependencies.egg]
 #git = "https://github.com/egraphs-good/egg"
 #rev = "484fd6eec831a4078455ac47ef1172ede1b03dbf" # send sync

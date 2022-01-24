@@ -181,7 +181,7 @@ impl SynthLanguage for Math {
         to_add
     }
 
-    fn is_valid(synth: &mut Synthesizer<Self>, lhs: &Pattern<Self>, rhs: &Pattern<Self>) -> bool {
+    fn is_valid(synth: &Synthesizer<Self>, lhs: &Pattern<Self>, rhs: &Pattern<Self>) -> bool {
         let n = synth.params.num_fuzz;
         let mut env = HashMap::default();
 
@@ -193,7 +193,8 @@ impl SynthLanguage for Math {
             env.insert(var, vec![]);
         }
 
-        let mut cvecs = gen_samples(&mut synth.rng, n, env.keys().len());
+        let mut rng = Pcg64::new(0, 0);
+        let mut cvecs = gen_samples(&mut rng, n, env.keys().len());
         for (_, cvec) in env.iter_mut() {
             let c = cvecs.pop().unwrap();
             for v in c {

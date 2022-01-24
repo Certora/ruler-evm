@@ -162,7 +162,7 @@ impl SynthLanguage for Math {
     }
 
     fn is_valid(
-        synth: &mut Synthesizer<Self>,
+        synth: &Synthesizer<Self>,
         lhs: &egg::Pattern<Self>,
         rhs: &egg::Pattern<Self>,
     ) -> bool {
@@ -184,7 +184,7 @@ impl SynthLanguage for Math {
                     false
                 }
                 SatResult::Unknown => {
-                    synth.smt_unknown += 1;
+                    //synth.smt_unknown += 1; TODO
                     println!("z3 validation: unknown for {} => {}", lhs, rhs);
                     false
                 }
@@ -201,9 +201,10 @@ impl SynthLanguage for Math {
                 env.insert(var, vec![]);
             }
 
+            let mut rng = Pcg64::new(0, 0);
             for cvec in env.values_mut() {
                 cvec.reserve(n);
-                for s in sampler(&mut synth.rng, 32, n) {
+                for s in sampler(&mut rng, 32, n) {
                     cvec.push(Some(s));
                 }
             }

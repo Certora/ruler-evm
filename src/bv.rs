@@ -320,7 +320,7 @@ macro_rules! impl_bv {
 
 
             fn is_valid(
-                synth: &mut Synthesizer<Self>,
+                synth: &Synthesizer<Self>,
                 lhs: &Pattern<Self>,
                 rhs: &Pattern<Self>,
             ) -> bool {
@@ -362,7 +362,8 @@ macro_rules! impl_bv {
                             false
                         }
                         SatResult::Unknown => {
-                            synth.smt_unknown += 1;
+                            // TODO
+                            //synth.smt_unknown += 1;
                             // println!("z3 validation: unknown for {} => {}", lhs, rhs);
                             false
                         }
@@ -379,10 +380,11 @@ macro_rules! impl_bv {
                         env.insert(var, vec![]);
                     }
 
+                    let mut rng = Pcg64::new(0, 0);
                     for cvec in env.values_mut() {
                         cvec.reserve(n);
                         for _ in 0..n {
-                            let v = synth.rng.gen::<BV>();
+                            let v = rng.gen::<BV>();
                             cvec.push(Some(v));
                         }
                     }
