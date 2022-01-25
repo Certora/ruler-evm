@@ -102,52 +102,51 @@ fn z3_256_to_bool<'a>(ctx: &'a z3::Context, ast: z3::ast::BV<'a>) -> z3::ast::Bo
     ast._eq(&z3::ast::BV::from_u64(&ctx, 0 as u64, 256))
 }
 
+fn egg_to_z3<'a>(ctx: &'a z3::Context, expr: &[EVM]) -> z3::ast::BV<'a> {
+    let mut buf: Vec<z3::ast::BV> = vec![];
+    for node in expr.as_ref().iter() {
+        match node {
+            EVM::Num(n) => buf.push(z3::ast::BV::from_int(&z3::ast::Int::from_str(ctx, &n.value.to_string()).unwrap(), 256)),
+            EVM::Var(v) => buf.push(z3::ast::BV::new_const(&ctx, v.to_string(), 256)),
+
+            EVM::Sub([a, b]) => buf.push(buf[usize::from(*a)].bvsub(&buf[usize::from(*b)])),
+            EVM::Div([a, b]) => buf.push(buf[usize::from(*a)].bvudiv(&buf[usize::from(*b)])),
+            EVM::BWAnd([a, b]) => buf.push(buf[usize::from(*a)].bvand(&buf[usize::from(*b)])),
+            EVM::BWOr([a, b]) => buf.push(buf[usize::from(*a)].bvor(&buf[usize::from(*b)])),
+            EVM::ShiftLeft([a, b]) => buf.push(buf[usize::from(*a)].bvshl(&buf[usize::from(*b)])),
+            EVM::ShiftRight([a, b]) => buf.push(buf[usize::from(*a)].bvlshr(&buf[usize::from(*b)])),
+
+            EVM::LOr([a, b]) => buf.push(z3_bool_to_256(ctx, z3_256_to_bool(ctx, buf[usize::from(*a)].clone()).bitor(z3_256_to_bool(ctx, buf[usize::from(*b)].clone())))),
+            EVM::LAnd([a, b]) => buf.push(z3_bool_to_256(ctx, z3_256_to_bool(ctx, buf[usize::from(*a)].clone()).bitand(z3_256_to_bool(ctx, buf[usize::from(*b)].clone())))),
+
+            EVM::Gt([a, b]) => buf.push(z3_bool_to_256(ctx, buf[usize::from(*a)].bvugt(&buf[usize::from(*b)]))),
+            EVM::Ge([a, b]) => buf.push(z3_bool_to_256(ctx, buf[usize::from(*a)].bvuge(&buf[usize::from(*b)]))),
+            EVM::Lt([a, b]) => buf.push(z3_bool_to_256(ctx, buf[usize::from(*a)].bvult(&buf[usize::from(*b)]))),
+            EVM::Le([a, b]) => buf.push(z3_bool_to_256(ctx, buf[usize::from(*a)].bvule(&buf[usize::from(*b)]))),
+            EVM::Eq([a, b]) => buf.push(z3_bool_to_256(ctx, buf[usize::from(*a)]._eq(&buf[usize::from(*b)]))),
+            EVM::Slt([a, b]) => buf.push(z3_bool_to_256(ctx, buf[usize::from(*a)].bvslt(&buf[usize::from(*b)]))),
+            EVM::Sle([a, b]) => buf.push(z3_bool_to_256(ctx, buf[usize::from(*a)].bvsle(&buf[usize::from(*b)]))),
+            EVM::Sgt([a, b]) => buf.push(z3_bool_to_256(ctx, buf[usize::from(*a)].bvsgt(&buf[usize::from(*b)]))),
+            EVM::Sge([a, b]) => buf.push(z3_bool_to_256(ctx, buf[usize::from(*a)].bvsge(&buf[usize::from(*b)]))),
+
+            EVM::Add([a, b]) => buf.push(buf[usize::from(*a)].bvadd(&buf[usize::from(*b)])),
+            EVM::Mul([a, b]) => buf.push(buf[usize::from(*a)].bvmul(&buf[usize::from(*b)])),
+
+            EVM::LNot([a]) => buf.push(z3_bool_to_256(ctx, z3_256_to_bool(ctx, buf[usize::from(*a)].clone()).not())),
+            EVM::BWNot([a]) => buf.push(buf[usize::from(*a)].bvnot()),
+
+            EVM::Havoc => (),
+        }
+    }
+    buf.pop().unwrap()
+}
+
 fn evm_smt_valid(
     lhs: &egg::Pattern<EVM>,
     rhs: &egg::Pattern<EVM>,
 ) -> bool {
-
-    fn egg_to_z3<'a>(ctx: &'a z3::Context, expr: &[EVM]) -> z3::ast::BV<'a> {
-        let mut buf: Vec<z3::ast::BV> = vec![];
-        for node in expr.as_ref().iter() {
-            match node {
-                EVM::Num(n) => buf.push(z3::ast::BV::from_int(&z3::ast::Int::from_str(ctx, &n.value.to_string()).unwrap(), 256)),
-                EVM::Var(v) => buf.push(z3::ast::BV::new_const(&ctx, v.to_string(), 256)),
-
-                EVM::Sub([a, b]) => buf.push(buf[usize::from(*a)].bvsub(&buf[usize::from(*b)])),
-                EVM::Div([a, b]) => buf.push(buf[usize::from(*a)].bvudiv(&buf[usize::from(*b)])),
-                EVM::BWAnd([a, b]) => buf.push(buf[usize::from(*a)].bvand(&buf[usize::from(*b)])),
-                EVM::BWOr([a, b]) => buf.push(buf[usize::from(*a)].bvor(&buf[usize::from(*b)])),
-                EVM::ShiftLeft([a, b]) => buf.push(buf[usize::from(*a)].bvshl(&buf[usize::from(*b)])),
-                EVM::ShiftRight([a, b]) => buf.push(buf[usize::from(*a)].bvlshr(&buf[usize::from(*b)])),
-
-                EVM::LOr([a, b]) => buf.push(z3_bool_to_256(ctx, z3_256_to_bool(ctx, buf[usize::from(*a)].clone()).bitor(z3_256_to_bool(ctx, buf[usize::from(*b)].clone())))),
-                EVM::LAnd([a, b]) => buf.push(z3_bool_to_256(ctx, z3_256_to_bool(ctx, buf[usize::from(*a)].clone()).bitand(z3_256_to_bool(ctx, buf[usize::from(*b)].clone())))),
-
-                EVM::Gt([a, b]) => buf.push(z3_bool_to_256(ctx, buf[usize::from(*a)].bvugt(&buf[usize::from(*b)]))),
-                EVM::Ge([a, b]) => buf.push(z3_bool_to_256(ctx, buf[usize::from(*a)].bvuge(&buf[usize::from(*b)]))),
-                EVM::Lt([a, b]) => buf.push(z3_bool_to_256(ctx, buf[usize::from(*a)].bvult(&buf[usize::from(*b)]))),
-                EVM::Le([a, b]) => buf.push(z3_bool_to_256(ctx, buf[usize::from(*a)].bvule(&buf[usize::from(*b)]))),
-                EVM::Eq([a, b]) => buf.push(z3_bool_to_256(ctx, buf[usize::from(*a)]._eq(&buf[usize::from(*b)]))),
-                EVM::Slt([a, b]) => buf.push(z3_bool_to_256(ctx, buf[usize::from(*a)].bvslt(&buf[usize::from(*b)]))),
-                EVM::Sle([a, b]) => buf.push(z3_bool_to_256(ctx, buf[usize::from(*a)].bvsle(&buf[usize::from(*b)]))),
-                EVM::Sgt([a, b]) => buf.push(z3_bool_to_256(ctx, buf[usize::from(*a)].bvsgt(&buf[usize::from(*b)]))),
-                EVM::Sge([a, b]) => buf.push(z3_bool_to_256(ctx, buf[usize::from(*a)].bvsge(&buf[usize::from(*b)]))),
-
-                EVM::Add([a, b]) => buf.push(buf[usize::from(*a)].bvadd(&buf[usize::from(*b)])),
-                EVM::Mul([a, b]) => buf.push(buf[usize::from(*a)].bvmul(&buf[usize::from(*b)])),
-
-                EVM::LNot([a]) => buf.push(z3_bool_to_256(ctx, z3_256_to_bool(ctx, buf[usize::from(*a)].clone()).not())),
-                EVM::BWNot([a]) => buf.push(buf[usize::from(*a)].bvnot()),
-
-                EVM::Havoc => (),
-            }
-        }
-        buf.pop().unwrap()
-    }
-
     let mut cfg = z3::Config::new();
-    cfg.set_timeout_msec(1000);
+    cfg.set_timeout_msec(10000);
     let ctx = z3::Context::new(&cfg);
     let solver = z3::Solver::new(&ctx);
     let lexpr = egg_to_z3(&ctx, EVM::instantiate(lhs).as_ref());
@@ -179,9 +178,15 @@ impl SynthLanguage for EVM {
                 let mut cvec = vec![];
                 for i in 0..cvec_len {
                     let first = if self.len() > 0 {
+                        if v(&self.children()[0]).len() < cvec_len {
+                            break;
+                        }
                         v(&self.children()[0])[i].clone()
                     } else { None };
                     let second = if self.len() > 1 {
+                        if v(&self.children()[1]).len() < cvec_len {
+                            break;
+                        }
                         v(&self.children()[1])[i].clone()
                     } else { None };
                                         
@@ -311,7 +316,9 @@ impl SynthLanguage for EVM {
     ) -> bool {
 
         if synth.params.use_smt {
-            evm_smt_valid(lhs, rhs)
+            let res = evm_smt_valid(lhs, rhs);
+            println!("verifying! {} {} {}", lhs, rhs, res);
+            res
         } else {
             let n = synth.params.num_fuzz;
             let mut env = HashMap::default();
@@ -426,7 +433,7 @@ pub fn get_pregenerated_rules() -> Vec<(String, String)> {
 
 
 
-                res.push(("(* ?a (+ ?b ?c))".to_string(), "(+ (* ?a ?b) (* ?a ?c))".to_string()));
+                
 
 
                 res
@@ -446,7 +453,13 @@ pub mod tests {
     fn test_evm() {
 
         for (lhs, rhs) in get_pregenerated_rules() {
-            if !evm_smt_valid(&lhs.parse().unwrap(), &rhs.parse().unwrap()) {
+            let lparsed: egg::Pattern<EVM> = lhs.parse().unwrap();
+            let rparsed: egg::Pattern<EVM> = rhs.parse().unwrap();
+            assert!(lparsed.to_string() == lhs);
+            assert!(rparsed.to_string() == rhs);
+            
+
+            if !evm_smt_valid(&lparsed, &rparsed) {
                 panic!("{} != {}", lhs, rhs);
             }
         }
