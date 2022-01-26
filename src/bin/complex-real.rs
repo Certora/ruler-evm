@@ -621,7 +621,7 @@ impl SynthLanguage for Math {
     }
 
     fn is_valid(
-        _synth: &mut Synthesizer<Self>,
+        _synth: &Synthesizer<Self>,
         lhs: &Pattern<Self>,
         rhs: &Pattern<Self>,
     ) -> bool {
