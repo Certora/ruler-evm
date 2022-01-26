@@ -146,7 +146,7 @@ fn evm_smt_valid(
     rhs: &egg::Pattern<EVM>,
 ) -> bool {
     let mut cfg = z3::Config::new();
-    cfg.set_timeout_msec(10000);
+    cfg.set_timeout_msec(1000);
     let ctx = z3::Context::new(&cfg);
     let solver = z3::Solver::new(&ctx);
     let lexpr = egg_to_z3(&ctx, EVM::instantiate(lhs).as_ref());
@@ -310,14 +310,13 @@ impl SynthLanguage for EVM {
     }
 
     fn is_valid(
-        synth: &mut Synthesizer<Self>,
+        synth: &Synthesizer<Self>,
         lhs: &egg::Pattern<Self>,
         rhs: &egg::Pattern<Self>,
     ) -> bool {
 
         if synth.params.use_smt {
             let res = evm_smt_valid(lhs, rhs);
-            println!("verifying! {} {} {}", lhs, rhs, res);
             res
         } else {
             let n = synth.params.num_fuzz;
@@ -331,10 +330,11 @@ impl SynthLanguage for EVM {
                 env.insert(var, vec![]);
             }
 
+            let mut rng = Pcg64::new(0, 0);
             for cvec in env.values_mut() {
                 cvec.reserve(n);
                 for _ in 0..n {
-                    let v = random_256(&mut synth.rng);
+                    let v = random_256(&mut rng);
                     cvec.push(Some(v));
                 }
             }

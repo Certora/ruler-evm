@@ -669,7 +669,7 @@ impl<L: SynthLanguage> Synthesizer<L> {
         layer
     }
 
-    fn parallelize_minimal_chunk(&self, chunk: EqualityMap<L>, steps: Vec<usize>, threads: usize) -> (EqualityMap<L>, EqualityMap<L>) {
+    fn parallelize_minimal_chunk(&self, chunk: EqualityMap<L>, steps: Vec<usize>, threads: usize, should_validate: bool) -> (EqualityMap<L>, EqualityMap<L>) {
         let mut chunk_randomized = vec![];
         for (k, v) in chunk.into_iter() {
             chunk_randomized.push((k, v));
@@ -697,9 +697,10 @@ impl<L: SynthLanguage> Synthesizer<L> {
             let myself = Arc::clone(&self_arc);
             let steps = steps.clone();
             pool.execute(move || {
-                tx.send(myself.choose_eqs(parallel, steps)).unwrap();
+                tx.send(myself.choose_eqs(parallel, steps, should_validate)).unwrap();
             });
             num_spawned += 1;
+            log::info!("Spawned {}", num_spawned);
         }
 
         
@@ -719,12 +720,12 @@ impl<L: SynthLanguage> Synthesizer<L> {
             let mut poison_rules = EqualityMap::default();
             let parallel_iters = 10;
             let mut cpus = num_cpus::get();
-            for _i in 0..parallel_iters {
+            for i in 0..parallel_iters {
                 let original_size = new_eqs.len();
 
-                println!("num cpus: {}", cpus);
+                log::info!("num cpus: {}", cpus);
 
-                let (second_eqs, more_poison) = self.parallelize_minimal_chunk(new_eqs, vec![100, 10, 1], cpus);
+                let (second_eqs, more_poison) = self.parallelize_minimal_chunk(new_eqs, vec![100, 10, 1], cpus, i == 0);
                 new_eqs = second_eqs;
                 poison_rules.extend(more_poison);
                 log::info!("Parallel results: minimized to {} out of {}", new_eqs.len(), original_size);
@@ -737,7 +738,7 @@ impl<L: SynthLanguage> Synthesizer<L> {
 
             (new_eqs, poison_rules)
         } else {
-            self.choose_eqs(chunk, vec![100, 10, 1])
+            self.choose_eqs(chunk, vec![100, 10, 1], true)
         }
     }
 
@@ -1074,7 +1075,7 @@ impl<L: SynthLanguage> Synthesizer<L> {
                 log::info!("Time taken in... run_rewrites: {}", run_rewrites);
 
                 let rule_minimize_before = Instant::now();
-                let (eqs, _) = self.choose_eqs(new_eqs, vec![100, 10, 1]);
+                let (eqs, _) = self.choose_eqs(new_eqs, vec![100, 10, 1], true);
                 let rule_minimize = rule_minimize_before.elapsed().as_secs_f64();
                 log::info!("Time taken in... rule minimization: {}", rule_minimize);
 
@@ -1623,9 +1624,9 @@ impl<L: SynthLanguage> Synthesizer<L> {
         &self,
         mut new_eqs: EqualityMap<L>,
         step_sizes: Vec<usize>,
+        mut should_validate: bool,
     ) -> (EqualityMap<L>, EqualityMap<L>) {
         let mut bads = EqualityMap::default();
-        let mut should_validate = true;
         let mut step_idx = 0;
 
         // Idea here is to remain at a high step level as long as possible
