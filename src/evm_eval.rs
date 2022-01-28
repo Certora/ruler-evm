@@ -69,7 +69,6 @@ define_language! {
         "!" = LNot([Id; 1]),
         "~" = BWNot([Id; 1]),
 
-        "Havoc" = Havoc, // TODO: not the same thing!
         Num(WrappedU256),
         Var(egg::Symbol),
     }
@@ -154,8 +153,6 @@ fn egg_to_z3<'a>(ctx: &'a z3::Context, expr: &[EVM]) -> z3::ast::BV<'a> {
 
             EVM::LNot([a]) => buf.push(z3_bool_to_256(ctx, z3_256_to_bool(ctx, buf[usize::from(*a)].clone()).not())),
             EVM::BWNot([a]) => buf.push(buf[usize::from(*a)].bvnot()),
-
-            EVM::Havoc => (),
         }
     }
     buf.pop().unwrap()
@@ -416,9 +413,8 @@ pub fn eval_evm(
     second: Option<U256>,
 ) -> Option<U256> {
     Some(match op {
-        EVM::Var(_) => None?,
         EVM::Num(n) => n.value,
-        EVM::Havoc => None?,
+        EVM::Var(_) => None?,
 
         EVM::Sub(_) => first?.overflowing_sub(second?).0,
         EVM::Div(_) => arith::div(first?, second?),
