@@ -1204,6 +1204,8 @@ pub struct SynthParams {
     /// 0 is unlimited
     #[clap(long, default_value = "0")]
     pub eq_chunk_size: usize,
+    #[clap(long, default_value = "200")]
+    pub rule_minimize_run_chunk_size: usize,
     #[clap(long)]
     pub parallel_minimization: bool,
     #[clap(long)]
@@ -1514,6 +1516,8 @@ impl<L: SynthLanguage> Synthesizer<L> {
             new_eqs.shuffle(&mut thread_rng());
         } else {
             new_eqs.sort_by(|(_k, eq1), (_k2, eq2)| eq1.score().cmp(&eq2.score()));
+            // best are first
+            new_eqs.reverse();
         }
         let initial_len = new_eqs.len();
 
@@ -1522,6 +1526,7 @@ impl<L: SynthLanguage> Synthesizer<L> {
                 .values()
                 .flat_map(|eq| &eq.rewrites)
                 .chain(new_eqs.iter().flat_map(|eq| &eq.1.rewrites));
+        
 
         let mut runner = self.mk_runner(self.initial_egraph.clone());
         for (_key, candidate_eq) in &new_eqs {
@@ -1556,9 +1561,10 @@ impl<L: SynthLanguage> Synthesizer<L> {
             }
         }
         
+        egraph.rebuild();
         for (iter, (name, rule)) in new_eqs.into_iter().enumerate() {
             println!("Minimizing rule {} using unions, threw away {} so far", iter, (iter) - keepers.len());
-            egraph.rebuild();
+            
             if egraph.add_expr(&L::instantiate(&rule.lhs)) != egraph.add_expr(&L::instantiate(&rule.rhs)) {
                 keepers.insert(name.clone(), rule.clone());
 
@@ -1567,6 +1573,7 @@ impl<L: SynthLanguage> Synthesizer<L> {
                         for (first, second) in unions {
                             egraph.union(*first, *second);
                         }
+                        egraph.rebuild();
                         all_unions.remove(&rewrite.name);
                     }
                 }
@@ -1607,14 +1614,16 @@ impl<L: SynthLanguage> Synthesizer<L> {
         let mut keepers = EqualityMap::default();
         let mut bads = EqualityMap::default();
         let initial_len = new_eqs.len();
+        
+        if self.params.parallel_minimization {
+            new_eqs.shuffle(&mut thread_rng());
+        } else {
+            // best are last
+            new_eqs.sort_by(|(_k, eq1), (_k2, eq2)| eq1.score().cmp(&eq2.score()));
+        }
 
         while !new_eqs.is_empty() {
-            // best are last
-            if self.params.parallel_minimization {
-                new_eqs.shuffle(&mut thread_rng());
-            } else {
-                new_eqs.sort_by(|(_k, eq1), (_k2, eq2)| eq1.score().cmp(&eq2.score()));
-            }
+            
 
             // take step valid rules from the end of new_eqs
             let mut took = 0;
@@ -1691,21 +1700,13 @@ impl<L: SynthLanguage> Synthesizer<L> {
                     }
                 }
             } else {
-                let extract = Extractor::new(&runner.egraph, AstSize);
+                let old_new_eqs = new_eqs.clone();
                 new_eqs.clear();
 
-                for ids in runner.roots.chunks(2) {
-                    if runner.egraph.find(ids[0]) != runner.egraph.find(ids[1]) {
-                        let left = extract.find_best(ids[0]).1;
-                        let right = extract.find_best(ids[1]).1;
-                        if L::recexpr_in_domain(&left) && L::recexpr_in_domain(&right) {
-                            if let Some(eq) = Equality::new(&left, &right) {
-                                if !self.all_eqs.contains_key(&eq.name) {
-                                    new_eqs.push((eq.name.clone(), eq));
-                                }
-                            }
-                        }
-                    }   
+                for (key, eq) in old_new_eqs {
+                    if runner.egraph.add_expr(&L::instantiate(&eq.lhs)) != runner.egraph.add_expr(&L::instantiate(&eq.rhs)) {
+                        new_eqs.push((key, eq));
+                    }
                 }
             };
 
