@@ -743,13 +743,22 @@ impl<L: SynthLanguage> Synthesizer<L> {
         }
     }
 
-    fn rule_minimize(&mut self, mut rules: EqualityMap<L>, poison_rules: &mut HashSet<Equality<L>>) -> bool {
-        let eq_chunk_count = div_up(rules.len(), self.params.eq_chunk_size);
-        let mut eq_chunk_num = 1;
+    fn rule_minimize(&mut self, rules_in: EqualityMap<L>, poison_rules: &mut HashSet<Equality<L>>) -> bool {
+        
+        let mut rules = vec![];        
+        for (k, v) in rules_in.into_iter() {
+            rules.push((k, v));
+        }
 
         if rules.is_empty() {
             return true;
         }
+        let eq_chunk_count = div_up(rules.len(), self.params.eq_chunk_size);
+        let mut eq_chunk_num = 1;
+        // best are last
+        rules.sort_by(|(_k, eq1), (_k2, eq2)| eq1.score().cmp(&eq2.score()));
+        //rules.reverse();
+        
 
         log::info!("Running minimization loop with {} chunks", eq_chunk_count);
         while !rules.is_empty() {
@@ -767,6 +776,8 @@ impl<L: SynthLanguage> Synthesizer<L> {
                     eqs_chunk.insert(k, v);
                 }
             }
+            println!("rules len {}", rules.len());
+            println!("chunk len {}", eqs_chunk.len());
 
             let rule_minimize_before = Instant::now();
             let (eqs, bads) = self.rule_minimize_chunk(eqs_chunk);
@@ -1204,8 +1215,6 @@ pub struct SynthParams {
     /// 0 is unlimited
     #[clap(long, default_value = "0")]
     pub eq_chunk_size: usize,
-    #[clap(long, default_value = "200")]
-    pub rule_minimize_run_chunk_size: usize,
     #[clap(long)]
     pub parallel_minimization: bool,
     #[clap(long)]
@@ -1563,7 +1572,7 @@ impl<L: SynthLanguage> Synthesizer<L> {
         
         egraph.rebuild();
         for (iter, (name, rule)) in new_eqs.into_iter().enumerate() {
-            println!("Minimizing rule {} using unions, threw away {} so far", iter, (iter) - keepers.len());
+            log::info!("Minimizing rule {} using unions, threw away {} so far", iter, (iter) - keepers.len());
             
             if egraph.add_expr(&L::instantiate(&rule.lhs)) != egraph.add_expr(&L::instantiate(&rule.rhs)) {
                 keepers.insert(name.clone(), rule.clone());
@@ -1591,7 +1600,7 @@ impl<L: SynthLanguage> Synthesizer<L> {
             panic!("Missed union from {}", key);
         }
 
-        println!("Done minimizing to {} / {}", keepers.len(), initial_len);
+        log::info!("Done minimizing to {} / {}", keepers.len(), initial_len);
         (keepers, bads)
     }
 
