@@ -412,6 +412,7 @@ impl<L: SynthLanguage> Synthesizer<L> {
 
         L::init_synth(&mut synth);
         synth.initial_egraph = synth.egraph.clone();
+        synth.egraph = synth.egraph.with_explanations_disabled();
         synth
     }
 
@@ -1205,6 +1206,10 @@ pub struct SynthParams {
     pub eq_chunk_size: usize,
     #[clap(long)]
     pub parallel_minimization: bool,
+    #[clap(long)]
+    pub shrink_unions: bool,
+    #[clap(long)]
+    pub orat: bool,
     /// disallows enumerating terms with constants past this iteration
     #[clap(long, default_value = "999999")]
     pub no_constants_above_iter: usize,
@@ -1487,6 +1492,102 @@ impl<L: SynthLanguage> egg::Analysis<L> for SynthAnalysis {
 }
 
 impl<L: SynthLanguage> Synthesizer<L> {
+    fn shrink_using_unions(&self,
+        new_eqs_in: EqualityMap<L>,
+        should_validate: bool) -> (EqualityMap<L>, EqualityMap<L>) {
+        let mut keepers = EqualityMap::default();
+        let mut bads = EqualityMap::default();
+        let mut new_eqs = vec![];
+        for (k, v) in new_eqs_in {
+            if should_validate {
+                let valid = L::is_valid(self, &v.lhs, &v.rhs);
+                if valid {
+                    new_eqs.push((k, v));
+                } else {
+                    bads.insert(k, v);
+                }
+            } else {
+                new_eqs.push((k, v));
+            }
+        }
+        if self.params.parallel_minimization {
+            new_eqs.shuffle(&mut thread_rng());
+        } else {
+            new_eqs.sort_by(|(_k, eq1), (_k2, eq2)| eq1.score().cmp(&eq2.score()));
+        }
+        let initial_len = new_eqs.len();
+
+        let rewrites = self
+                .all_eqs
+                .values()
+                .flat_map(|eq| &eq.rewrites)
+                .chain(new_eqs.iter().flat_map(|eq| &eq.1.rewrites));
+
+        let mut runner = self.mk_runner(self.initial_egraph.clone());
+        for (_key, candidate_eq) in &new_eqs {
+            runner = runner.with_expr(&L::instantiate(&candidate_eq.lhs));
+            runner = runner.with_expr(&L::instantiate(&candidate_eq.rhs));
+        }
+
+        runner = runner.run(rewrites);
+        log::info!(
+            "Stopping {:?}, {:?}",
+            runner.stop_reason.clone().unwrap(),
+            runner.iterations.len()
+        );
+
+        let mut egraph = runner.egraph.copy_without_unions(self.initial_egraph.analysis.clone());
+        let mut all_unions: HashMap<Symbol, Vec<(Id, Id)>> = Default::default();
+        for (first, second, name) in runner.egraph.get_union_equalities() {
+            if all_unions.get(&name).is_none() {
+                all_unions.insert(name, vec![]);
+            }
+            all_unions.get_mut(&name).unwrap().push((first, second));
+        }
+
+        for (_name, rule) in self.all_eqs.iter() {
+            for rewrite in &rule.rewrites {
+                if let Some(unions) = all_unions.get(&rewrite.name) {
+                    for (first, second) in unions {
+                        egraph.union(*first, *second);
+                    }
+                    all_unions.remove(&rewrite.name);
+                }
+            }
+        }
+        
+        for (iter, (name, rule)) in new_eqs.into_iter().enumerate() {
+            println!("Minimizing rule {} using unions, threw away {} so far", iter, (iter) - keepers.len());
+            egraph.rebuild();
+            if egraph.add_expr(&L::instantiate(&rule.lhs)) != egraph.add_expr(&L::instantiate(&rule.rhs)) {
+                keepers.insert(name.clone(), rule.clone());
+
+                for rewrite in &rule.rewrites {
+                    if let Some(unions) = all_unions.get(&rewrite.name) {
+                        for (first, second) in unions {
+                            egraph.union(*first, *second);
+                        }
+                        all_unions.remove(&rewrite.name);
+                    }
+                }
+            } else {
+                for rewrite in &rule.rewrites {
+                    if let Some(unions) = all_unions.get(&rewrite.name) {
+                        all_unions.remove(&rewrite.name);
+                    }
+                }
+                bads.insert(name, rule);
+            }
+        }
+
+        for (key, val) in all_unions {
+            panic!("Missed union from {}", key);
+        }
+
+        println!("Done minimizing to {} / {}", keepers.len(), initial_len);
+        (keepers, bads)
+    }
+
     /// Shrink the candidate space.
     #[inline(never)]
     fn shrink(
@@ -1495,6 +1596,10 @@ impl<L: SynthLanguage> Synthesizer<L> {
         step: usize,
         should_validate: bool
     ) -> (EqualityMap<L>, EqualityMap<L>) {
+        if self.params.shrink_unions {
+            return self.shrink_using_unions(new_eqs_in, should_validate);
+        }
+
         let mut new_eqs = vec![];
         for (k, v) in new_eqs_in {
             new_eqs.push((k, v));
@@ -1554,7 +1659,7 @@ impl<L: SynthLanguage> Synthesizer<L> {
                 .chain(keepers.values().flat_map(|eq| &eq.rewrites));
 
             
-            let mut runner = self.mk_runner(self.initial_egraph.clone());
+            let mut runner = self.mk_runner(self.initial_egraph.clone().with_explanations_disabled());
             for (_key, candidate_eq) in &new_eqs {
                 runner = runner.with_expr(&L::instantiate(&candidate_eq.lhs));
                 runner = runner.with_expr(&L::instantiate(&candidate_eq.rhs));
@@ -1623,9 +1728,12 @@ impl<L: SynthLanguage> Synthesizer<L> {
     fn choose_eqs(
         &self,
         mut new_eqs: EqualityMap<L>,
-        step_sizes: Vec<usize>,
+        mut step_sizes: Vec<usize>,
         mut should_validate: bool,
     ) -> (EqualityMap<L>, EqualityMap<L>) {
+        if self.params.orat {
+            step_sizes = vec![1];
+        }
         let mut bads = EqualityMap::default();
         let mut step_idx = 0;
 

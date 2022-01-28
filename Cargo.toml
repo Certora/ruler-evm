@@ -33,7 +33,8 @@ smallvec = { version = "1.6", features = ["union", "const_generics"] }
 evm-core = { git = "https://github.com/oflatt/evm", rev = "8a8cac7aaa49cc91649ba3f420965af1a592952e" }
 primitive-types = "0.10.1"
 
-egg = "0.7.1"
+egg = { path = "../egg" }
+# egg = "0.7.1"
 
 num_cpus = "1.13.1"
 threadpool = "1.8.1"

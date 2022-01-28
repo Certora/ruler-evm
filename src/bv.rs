@@ -259,6 +259,7 @@ macro_rules! impl_bv {
                     },
                     rule_lifting: false,
                 });
+                egraph = egraph.with_explanations_enabled();
 
                 // egraph.add(Math::Num(BV::ZERO));
                 // egraph.add(Math::Num(1.into()));
