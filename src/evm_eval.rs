@@ -166,7 +166,7 @@ fn evm_smt_valid(
     rhs: &egg::Pattern<EVM>,
 ) -> bool {
     let mut cfg = z3::Config::new();
-    cfg.set_timeout_msec(1000);
+    cfg.set_timeout_msec(20000);
     let ctx = z3::Context::new(&cfg);
     let mut vars_set = Default::default();
     let vars = egg_bv_vars(&mut vars_set, EVM::instantiate(lhs).as_ref());
@@ -210,7 +210,7 @@ fn evm_smt_valid(
         .read_to_string(&mut output)
         .unwrap();
 
-    !timed_out && output.starts_with("sat")
+    !timed_out && output.starts_with("unsat")
 }
 
 impl SynthLanguage for EVM {
@@ -483,7 +483,7 @@ pub fn get_pregenerated_rules() -> Vec<(String, String)> {
 
 
 
-                
+                res.push(("(* ?a (+ ?b ?c))".to_string(), "(+ (* ?a ?b) (* ?a ?c))".to_string()));
 
 
                 res
