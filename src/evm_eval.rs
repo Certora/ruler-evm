@@ -11,7 +11,12 @@ use rand_pcg::Pcg64;
 use std::str::FromStr;
 use std::fmt;
 
-use z3::{SatResult, ast::Ast};
+use std::io::Read;
+use std::io::Write;
+use std::process::{Command, Stdio};
+
+use z3::{ast::Ast};
+use wait_timeout::ChildExt;
 
 // Wrap U256 so we parse correctly
 #[derive(Debug, Clone, PartialOrd, Ord, Eq, PartialEq, Hash)]
@@ -102,6 +107,21 @@ fn z3_256_to_bool<'a>(ctx: &'a z3::Context, ast: z3::ast::BV<'a>) -> z3::ast::Bo
     ast._eq(&z3::ast::BV::from_u64(&ctx, 0 as u64, 256))
 }
 
+fn egg_bv_vars(vars_set: &mut HashSet<Symbol>, expr: &[EVM]) -> String {
+    let mut all = vec![];
+    for node in expr.as_ref().iter() {
+        match node {
+            EVM::Var(v) => {
+                if vars_set.insert(*v) {
+                    all.push(format!("(declare-const {} (_ BitVec 256))", v))
+                }
+            },
+            _ => (),
+        }
+    }
+    all.join("\n")
+}
+
 fn egg_to_z3<'a>(ctx: &'a z3::Context, expr: &[EVM]) -> z3::ast::BV<'a> {
     let mut buf: Vec<z3::ast::BV> = vec![];
     for node in expr.as_ref().iter() {
@@ -148,19 +168,49 @@ fn evm_smt_valid(
     let mut cfg = z3::Config::new();
     cfg.set_timeout_msec(1000);
     let ctx = z3::Context::new(&cfg);
-    let solver = z3::Solver::new(&ctx);
+    let mut vars_set = Default::default();
+    let vars = egg_bv_vars(&mut vars_set, EVM::instantiate(lhs).as_ref());
+    let vars2 = egg_bv_vars(&mut vars_set, EVM::instantiate(rhs).as_ref());
     let lexpr = egg_to_z3(&ctx, EVM::instantiate(lhs).as_ref());
     let rexpr = egg_to_z3(&ctx, EVM::instantiate(rhs).as_ref());
-    solver.assert(&lexpr._eq(&rexpr).not());
-    match solver.check() {
-        SatResult::Unsat => true,
-        SatResult::Sat => {
-            false
+
+    let query = 
+        vec![vars,
+            vars2,
+            format!("\n(assert {})", lexpr._eq(&rexpr).not()),
+            "(check-sat)".to_string()].join("\n");
+
+    let mut z3_process = Command::new("z3")
+        .arg("-smt2")
+        .arg("-in")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let z3_in = z3_process.stdin.as_mut().unwrap();
+    z3_in.write_all(query.as_bytes()).unwrap();
+
+    let TIMEOUT = Duration::from_secs(1);
+    let mut timed_out = false;
+
+    let _status_code = match z3_process.wait_timeout(TIMEOUT).unwrap() {
+        Some(status) => status.code(),
+        None => {
+            timed_out = true;
+            z3_process.kill().unwrap();
+            z3_process.wait().unwrap().code()
         }
-        SatResult::Unknown => {
-            false
-        }
-    }
+    };
+
+    let mut output = String::new();
+    z3_process
+        .stdout
+        .unwrap()
+        .read_to_string(&mut output)
+        .unwrap();
+
+    !timed_out && output.starts_with("sat")
 }
 
 impl SynthLanguage for EVM {

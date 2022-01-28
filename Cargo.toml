@@ -22,7 +22,8 @@ float-cmp = "0.8.0"
 lazy_static = "1.4.0"
 itertools = "0.9.0"
 # fixed = "1.9.0"
-z3 = {version="0.10.0", features = ["static-link-z3"]}
+z3 = {version="0.11.2", features = ["static-link-z3"]}
+z3-sys = {version="0.7.1"}
 # z3 = {version="0.10.0"}
 rustc-hash = "1"
 symbolic_expressions = "5"
@@ -36,6 +37,7 @@ egg = "0.7.1"
 
 num_cpus = "1.13.1"
 threadpool = "1.8.1"
+wait-timeout = "0.2.0"
 
 #[dependencies.egg]
 #git = "https://github.com/egraphs-good/egg"
