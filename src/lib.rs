@@ -757,7 +757,6 @@ impl<L: SynthLanguage> Synthesizer<L> {
         let mut eq_chunk_num = 1;
         // best are last
         rules.sort_by(|(_k, eq1), (_k2, eq2)| eq1.score().cmp(&eq2.score()));
-        //rules.reverse();
         
 
         log::info!("Running minimization loop with {} chunks", eq_chunk_count);
@@ -786,10 +785,6 @@ impl<L: SynthLanguage> Synthesizer<L> {
             log::info!("Added {} rules to the poison set!", bads.len());
             for bad in bads {
                 poison_rules.insert(bad.1);
-            }
-            if eqs.is_empty() {
-                log::info!("Stopping early, no eqs");
-                return true;
             }
 
             // filter bad constants
@@ -1215,6 +1210,8 @@ pub struct SynthParams {
     /// 0 is unlimited
     #[clap(long, default_value = "0")]
     pub eq_chunk_size: usize,
+    #[clap(long, default_value = "100")]
+    pub minimization_batch_size: usize,
     #[clap(long)]
     pub parallel_minimization: bool,
     #[clap(long)]
@@ -1503,13 +1500,18 @@ impl<L: SynthLanguage> egg::Analysis<L> for SynthAnalysis {
 }
 
 impl<L: SynthLanguage> Synthesizer<L> {
-    fn shrink_using_unions(&self,
-        new_eqs_in: EqualityMap<L>,
-        should_validate: bool) -> (EqualityMap<L>, EqualityMap<L>) {
+    fn shrink_using_unions_chunk(&self,
+        keepers_in: &EqualityMap<L>,
+        mut new_eqs_in: EqualityMap<L>,
+        should_validate: bool,
+        rebuild_each_rule: bool) -> (EqualityMap<L>, EqualityMap<L>, EqualityMap<L>) {
+
+
         let mut keepers = EqualityMap::default();
         let mut bads = EqualityMap::default();
         let mut new_eqs = vec![];
-        for (k, v) in new_eqs_in {
+        while new_eqs_in.len() > 0 && new_eqs.len() < self.params.minimization_batch_size {
+            let (k, v) = new_eqs_in.pop().unwrap();
             if should_validate {
                 let valid = L::is_valid(self, &v.lhs, &v.rhs);
                 if valid {
@@ -1521,20 +1523,16 @@ impl<L: SynthLanguage> Synthesizer<L> {
                 new_eqs.push((k, v));
             }
         }
-        if self.params.parallel_minimization {
-            new_eqs.shuffle(&mut thread_rng());
-        } else {
-            new_eqs.sort_by(|(_k, eq1), (_k2, eq2)| eq1.score().cmp(&eq2.score()));
-            // best are first
-            new_eqs.reverse();
-        }
+
+        
         let initial_len = new_eqs.len();
 
         let rewrites = self
                 .all_eqs
                 .values()
                 .flat_map(|eq| &eq.rewrites)
-                .chain(new_eqs.iter().flat_map(|eq| &eq.1.rewrites));
+                .chain(new_eqs.iter().flat_map(|eq| &eq.1.rewrites))
+                .chain(keepers_in.values().flat_map(|eq| &eq.rewrites));
         
 
         let mut runner = self.mk_runner(self.initial_egraph.clone());
@@ -1559,7 +1557,7 @@ impl<L: SynthLanguage> Synthesizer<L> {
             all_unions.get_mut(&name).unwrap().push((first, second));
         }
 
-        for (_name, rule) in self.all_eqs.iter() {
+        for (_name, rule) in self.all_eqs.iter().chain(keepers_in.iter()) {
             for rewrite in &rule.rewrites {
                 if let Some(unions) = all_unions.get(&rewrite.name) {
                     for (first, second) in unions {
@@ -1572,8 +1570,6 @@ impl<L: SynthLanguage> Synthesizer<L> {
         
         egraph.rebuild();
         for (iter, (name, rule)) in new_eqs.into_iter().enumerate() {
-            log::info!("Minimizing rule {} using unions, threw away {} so far", iter, (iter) - keepers.len());
-            
             if egraph.add_expr(&L::instantiate(&rule.lhs)) != egraph.add_expr(&L::instantiate(&rule.rhs)) {
                 keepers.insert(name.clone(), rule.clone());
 
@@ -1582,26 +1578,64 @@ impl<L: SynthLanguage> Synthesizer<L> {
                         for (first, second) in unions {
                             egraph.union(*first, *second);
                         }
-                        egraph.rebuild();
+                        if rebuild_each_rule {
+                            egraph.rebuild();
+                        }
                         all_unions.remove(&rewrite.name);
                     }
                 }
             } else {
                 for rewrite in &rule.rewrites {
-                    if let Some(unions) = all_unions.get(&rewrite.name) {
+                    if let Some(_unions) = all_unions.get(&rewrite.name) {
                         all_unions.remove(&rewrite.name);
                     }
                 }
                 bads.insert(name, rule);
             }
         }
+        egraph.rebuild();
 
-        for (key, val) in all_unions {
+        for (key, _val) in all_unions {
             panic!("Missed union from {}", key);
         }
 
+        let mut new_eqs_out = EqualityMap::default();
+
+        for (key, eq) in new_eqs_in.into_iter() {
+            if egraph.add_expr(&L::instantiate(&eq.lhs)) != egraph.add_expr(&L::instantiate(&eq.rhs)) {
+                new_eqs_out.insert(key, eq);
+            }
+        }
+
         log::info!("Done minimizing to {} / {}", keepers.len(), initial_len);
-        (keepers, bads)
+        (keepers, bads, new_eqs_out)
+    }
+
+
+    fn shrink_using_unions(&self,
+        mut new_eqs: EqualityMap<L>,
+        should_validate: bool,
+        rebuild_each_rule: bool) -> (EqualityMap<L>, EqualityMap<L>) {
+
+        if self.params.parallel_minimization {
+            // TODO shuffle randomly?
+        } else {
+            // best are last
+            new_eqs.sort_by(|_k, eq1, _k2, eq2| eq1.score().cmp(&eq2.score()));
+        }
+
+        let mut keepers = EqualityMap::default();
+        let mut poison = EqualityMap::default();
+
+        while !new_eqs.is_empty() {
+            let (good, bad, new) = self.shrink_using_unions_chunk(&keepers, new_eqs, should_validate, rebuild_each_rule);
+            keepers.extend(good);
+            poison.extend(bad);
+            new_eqs = new;
+            new_eqs.sort_by(|_k, eq1, _k2, eq2| eq1.score().cmp(&eq2.score()));
+        }
+
+        (keepers, poison)
     }
 
     /// Shrink the candidate space.
@@ -1613,9 +1647,22 @@ impl<L: SynthLanguage> Synthesizer<L> {
         should_validate: bool
     ) -> (EqualityMap<L>, EqualityMap<L>) {
         if self.params.shrink_unions {
-            return self.shrink_using_unions(new_eqs_in, should_validate);
-        }
+            let (keepers, mut poison) = self.shrink_using_unions(new_eqs_in, should_validate, false);
+            let (keepers2, poison2) = self.shrink_using_unions(keepers, false, true);
+            poison.extend(poison2);
 
+            (keepers2, poison)
+        } else {
+            self.shrink_old(new_eqs_in, step, should_validate)
+        }
+    }
+
+    fn shrink_old(
+        &self,
+        new_eqs_in: EqualityMap<L>,
+        step: usize,
+        should_validate: bool
+    ) -> (EqualityMap<L>, EqualityMap<L>) {
         let mut new_eqs = vec![];
         for (k, v) in new_eqs_in {
             new_eqs.push((k, v));
@@ -1631,33 +1678,38 @@ impl<L: SynthLanguage> Synthesizer<L> {
             new_eqs.sort_by(|(_k, eq1), (_k2, eq2)| eq1.score().cmp(&eq2.score()));
         }
 
+        let mut first_iter = true;
+
         while !new_eqs.is_empty() {
             
 
             // take step valid rules from the end of new_eqs
             let mut took = 0;
-            while let Some((name, eq)) = new_eqs.pop() {
-                if should_validate {
-                    let valid = L::is_valid(self, &eq.lhs, &eq.rhs);
-                    if valid {
+            if !first_iter {
+                while let Some((name, eq)) = new_eqs.pop() {
+                    if should_validate {
+                        let valid = L::is_valid(self, &eq.lhs, &eq.rhs);
+                        if valid {
+                            let old = keepers.insert(name, eq);
+                            if old.is_none() {
+                                took += 1;
+                            }
+                        } else {
+                            bads.insert(name, eq);
+                        }
+                    } else {
                         let old = keepers.insert(name, eq);
                         if old.is_none() {
                             took += 1;
                         }
-                    } else {
-                        bads.insert(name, eq);
                     }
-                } else {
-                    let old = keepers.insert(name, eq);
-                    if old.is_none() {
-                        took += 1;
-                    }
-                }
 
-                if took >= step {
-                    break;
+                    if took >= step {
+                        break;
+                    }
                 }
             }
+            first_iter = false;
 
             if new_eqs.is_empty() {
                 break;
