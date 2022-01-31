@@ -293,7 +293,7 @@ impl SynthLanguage for EVM {
                 ConstantFoldMethod::CvecMatching
             },
             rule_lifting: false,
-        });
+        }).with_explanations_enabled();
 
         egraph.add(EVM::from_u64(0));
         egraph.add(EVM::from(U256::zero().overflowing_sub(U256::one()).0));
