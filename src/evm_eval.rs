@@ -163,7 +163,6 @@ fn evm_smt_valid(
     rhs: &egg::Pattern<EVM>,
 ) -> bool {
     let mut cfg = z3::Config::new();
-    cfg.set_timeout_msec(20000);
     let ctx = z3::Context::new(&cfg);
     let mut vars_set = Default::default();
     let vars = egg_bv_vars(&mut vars_set, EVM::instantiate(lhs).as_ref());
@@ -188,10 +187,10 @@ fn evm_smt_valid(
     let z3_in = z3_process.stdin.as_mut().unwrap();
     z3_in.write_all(query.as_bytes()).unwrap();
 
-    let TIMEOUT = Duration::from_secs(1);
+    let z3_timeout = Duration::from_secs(1);
     let mut timed_out = false;
 
-    let _status_code = match z3_process.wait_timeout(TIMEOUT).unwrap() {
+    let _status_code = match z3_process.wait_timeout(z3_timeout).unwrap() {
         Some(status) => status.code(),
         None => {
             timed_out = true;
