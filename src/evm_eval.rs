@@ -68,6 +68,9 @@ define_language! {
 
         "!" = LNot([Id; 1]),
         "~" = BWNot([Id; 1]),
+        "exp" = Exp([Id; 2]),
+
+        "apply" = Apply(Box<[Id]>),
 
         Num(WrappedU256),
         Var(egg::Symbol),
@@ -153,6 +156,8 @@ fn egg_to_z3<'a>(ctx: &'a z3::Context, expr: &[EVM]) -> z3::ast::BV<'a> {
 
             EVM::LNot([a]) => buf.push(z3_bool_to_256(ctx, z3_256_to_bool(ctx, buf[usize::from(*a)].clone()).not())),
             EVM::BWNot([a]) => buf.push(buf[usize::from(*a)].bvnot()),
+            EVM::Exp([_, _]) => (),
+            EVM::Apply(_) => ()
         }
     }
     buf.pop().unwrap()
@@ -442,6 +447,8 @@ pub fn eval_evm(
 
         EVM::LNot(_) => bool_to_u256(!u256_to_bool(first?)),
         EVM::BWNot(_) => bitwise::not(first?),
+        EVM::Exp(_) => None?,
+        EVM::Apply(_) => None?
     })
 }
 
