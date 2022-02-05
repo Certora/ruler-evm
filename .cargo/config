@@ -1,3 +1,6 @@
+[net]
+git-fetch-with-cli = true
+
 [alias]
 rational = ["run", "--quiet", "--release", "--bin", "rational", "--", "synth", "--important-cvec-offsets", "2"]
 float =    ["run", "--quiet", "--release", "--bin", "float",    "--", "synth", "--num-fuzz", "1000000"]
