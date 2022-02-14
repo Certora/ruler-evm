@@ -30,7 +30,6 @@ symbolic_expressions = "5"
 rayon = "1"
 smallvec = { version = "1.6", features = ["union", "const_generics"] }
 
-evm-core = { git = "https://github.com/oflatt/evm", rev = "8a8cac7aaa49cc91649ba3f420965af1a592952e" }
 primitive-types = "0.10.1"
 
 egg = { git = "ssh://git@github.com/oflatt/egg", rev = "7e53118bee07634b91b3eadddacf96a75f0fccea" }

@@ -27,6 +27,8 @@ mod convert_sexp;
 mod derive;
 mod equality;
 mod util;
+mod evm_ops;
+mod evm_utils;
 pub mod evm_eval;
 
 /// Faster hashMap implementation used in rustc

@@ -1,6 +1,5 @@
 use core::ops::{BitAnd};
-use evm_core::eval::arithmetic as arith;
-use evm_core::eval::bitwise;
+use evm_ops;
 use primitive_types::U256;
 use rand::prelude::*;
 use std::ops::*;
@@ -167,7 +166,7 @@ fn evm_smt_valid(
     lhs: &egg::Pattern<EVM>,
     rhs: &egg::Pattern<EVM>,
 ) -> bool {
-    let mut cfg = z3::Config::new();
+    let cfg = z3::Config::new();
     let ctx = z3::Context::new(&cfg);
     let mut vars_set = Default::default();
     let vars = egg_bv_vars(&mut vars_set, EVM::instantiate(lhs).as_ref());
@@ -421,11 +420,11 @@ pub fn eval_evm(
         EVM::Var(_) => None?,
 
         EVM::Sub(_) => first?.overflowing_sub(second?).0,
-        EVM::Div(_) => arith::div(first?, second?),
+        EVM::Div(_) => evm_ops::div(first?, second?),
         EVM::BWAnd(_) => first?.bitor(second?),
         EVM::BWOr(_) => first?.bitand(second?),
-        EVM::ShiftLeft(_) => bitwise::shl(first?, second?),
-        EVM::ShiftRight(_) => bitwise::shr(first?, second?),
+        EVM::ShiftLeft(_) => evm_ops::shl(first?, second?),
+        EVM::ShiftRight(_) => evm_ops::shr(first?, second?),
 
         EVM::LOr(_) => bool_to_u256(u256_to_bool(first?) || u256_to_bool(second?)),
         EVM::LAnd(_) => bool_to_u256(u256_to_bool(first?) && u256_to_bool(second?)),
@@ -436,17 +435,17 @@ pub fn eval_evm(
         EVM::Le(_) => bool_to_u256(first?.le(&second?)),
         EVM::Eq(_) => bool_to_u256(first?.eq(&second?)),
 
-        EVM::Slt(_) => bitwise::slt(first?, second?),
-        EVM::Sle(_) => if first? == second? { bool_to_u256(true) } else {bitwise::slt(first?, second?)},
-        EVM::Sgt(_) => bitwise::sgt(first?, second?),
-        EVM::Sge(_) => if first? == second? { bool_to_u256(true) } else {bitwise::sgt(first?, second?)},
+        EVM::Slt(_) => evm_ops::slt(first?, second?),
+        EVM::Sle(_) => if first? == second? { bool_to_u256(true) } else {evm_ops::slt(first?, second?)},
+        EVM::Sgt(_) => evm_ops::sgt(first?, second?),
+        EVM::Sge(_) => if first? == second? { bool_to_u256(true) } else {evm_ops::sgt(first?, second?)},
 
         EVM::Add(_) => first?.overflowing_add(second?).0,
         EVM::Mul(_) => first?.overflowing_mul(second?).0,
 
 
         EVM::LNot(_) => bool_to_u256(!u256_to_bool(first?)),
-        EVM::BWNot(_) => bitwise::not(first?),
+        EVM::BWNot(_) => evm_ops::not(first?),
         EVM::Exp(_) => None?,
         EVM::Apply(_) => None?
     })
