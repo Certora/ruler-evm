@@ -28,6 +28,7 @@ rustc-hash = "1"
 symbolic_expressions = "5"
 rayon = "1"
 smallvec = { version = "1.6", features = ["union", "const_generics"] }
+rust-evm = { git = "ssh://git@github.com/Certora/rust-evm", rev = "b0a6c9108258975cf91f5c6605d2fdb8451b25ca" }
 
 primitive-types = "0.10.1"
 

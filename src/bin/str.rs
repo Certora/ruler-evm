@@ -338,11 +338,7 @@ impl SynthLanguage for Lang {
         to_add
     }
 
-    fn is_valid(
-        _synth: &Synthesizer<Self>,
-        _lhs: &Pattern<Self>,
-        _rhs: &Pattern<Self>,
-    ) -> bool {
+    fn is_valid(_synth: &Synthesizer<Self>, _lhs: &Pattern<Self>, _rhs: &Pattern<Self>) -> bool {
         true
     }
 }
