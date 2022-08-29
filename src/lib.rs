@@ -540,7 +540,7 @@ impl<L: SynthLanguage> Synthesizer<L> {
     /// rewrite rule inference is enabled.
     #[inline(never)]
     fn cvec_match_pair_wise(&self) -> EqualityMap<L> {
-        let mut by_cvec: IndexMap<CVec<L>, Vec<Id>> = IndexMap::default();
+        let mut by_cvec: IndexMap<(CVec<L>, L::Type), Vec<Id>> = IndexMap::default();
 
         let not_all_nones = self
             .ids()
@@ -548,7 +548,7 @@ impl<L: SynthLanguage> Synthesizer<L> {
         for id in not_all_nones {
             let class = &self.egraph[id];
             let cvec = vec![class.data.cvec[0].clone()];
-            by_cvec.entry(cvec).or_default().push(class.id);
+            by_cvec.entry((cvec, class.data.class_type.clone())).or_default().push(class.id);
         }
 
         log::info!("# unique cvecs: {}", by_cvec.len());
@@ -594,12 +594,13 @@ impl<L: SynthLanguage> Synthesizer<L> {
     #[inline(never)]
     fn cvec_match(&self) -> (EqualityMap<L>, Vec<Vec<Id>>) {
         // build the cvec matching data structure
-        let mut by_cvec: IndexMap<&CVec<L>, Vec<Id>> = IndexMap::default();
+        // Index by type as well as cvec in case the internal representation of each data structure uses the same type
+        let mut by_cvec: IndexMap<(&CVec<L>, &L::Type), Vec<Id>> = IndexMap::default();
 
         for id in self.ids() {
             let class = &self.egraph[id];
             if class.data.is_defined() {
-                by_cvec.entry(&class.data.cvec).or_default().push(class.id);
+                by_cvec.entry((&class.data.cvec, &class.data.class_type)).or_default().push(class.id);
             }
         }
 

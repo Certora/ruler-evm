@@ -335,6 +335,8 @@ impl SynthLanguage for EVM {
         egraph.add(EVM::from(U256::zero().overflowing_sub(U256::one()).0));
         egraph.add(EVM::from(U256::one()));
         egraph.add(EVM::from(U256::one().overflowing_add(U256::one()).0));
+        egraph.add(EVM::from(true));
+        egraph.add(EVM::from(false));
 
         for (i, n_vals) in cs.iter().enumerate().take(synth.params.variables) {
             let n_id = egraph.add(EVM::BitVar(BitVar(Symbol::from("bit256".to_owned() + letter(i)))));
@@ -356,10 +358,25 @@ impl SynthLanguage for EVM {
     fn make_layer(synth: &Synthesizer<Self>, iter: usize) -> Vec<Self> {
         let extract = Extractor::new(&synth.egraph, NumberOfOps);
 
+        let ids: HashMap<Id, usize> = synth
+                    .ids()
+                    .map(|id| (id, extract.find_best_cost(id)))
+                    .collect();
+
         let mut to_add = vec![];
         for i in synth.ids() {
+            // Only enumerate bitwise operations after iter 2
+            if ids[&i] >= iter || (synth.egraph[i].data.class_type == Type::Bool && iter > 2) {
+                continue;
+            }
             for j in synth.ids() {
+                if ids[&i] + ids[&j] >= iter || (synth.egraph[j].data.class_type == Type::Bool && iter > 2) {
+                    continue;
+                }
                 for k in synth.ids() {
+                    if ids[&i] + ids[&j] + ids[&k] >= iter {
+                        continue;
+                    }
                     if synth.egraph[i].data.class_type == Type::Bool &&
                         synth.egraph[j].data.class_type == Type::Bit256 &&
                         synth.egraph[k].data.class_type == Type::Bit256 {
