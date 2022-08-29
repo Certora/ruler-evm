@@ -22,6 +22,7 @@ mod convert_sexp;
 mod derive;
 mod equality;
 mod util;
+pub(crate) mod evm;
 
 /// Faster hashMap implementation used in rustc
 pub type HashMap<K, V> = rustc_hash::FxHashMap<K, V>;

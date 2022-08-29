@@ -28,8 +28,16 @@ symbolic_expressions = "5"
 rayon = "1"
 smallstr = "0.3"
 
+# evm deps
+rust-evm = { git = "ssh://git@github.com/Certora/rust-evm", rev = "198728e25333503b11ec8f1b443c41fa546d7377" }
+primitive-types = "0.10.1"
+wait-timeout = "0.2.0"
+
+
 [dependencies.egg]
-version = "0.8"
+rev = "df6635fc11a05c0229faea0fdabd3fc4fa237a63"
+git = "ssh://git@github.com/oflatt/egg"
+# version = "0.8"
 # git = "https://github.com/egraphs-good/egg"
 # rev = "8d68c8768cc18c2eae97f970e2b4162324cee787"   # 0.7-dev before proofs
 # rev = "484fd6eec831a4078455ac47ef1172ede1b03dbf" # send sync
