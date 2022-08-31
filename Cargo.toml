@@ -29,7 +29,7 @@ rayon = "1"
 smallstr = "0.3"
 
 # evm deps
-rust-evm = { git = "ssh://git@github.com/Certora/rust-evm", rev = "198728e25333503b11ec8f1b443c41fa546d7377" }
+rust-evm = { git = "ssh://git@github.com/Certora/rust-evm", rev = "bce908ee5f22832b7f3c8c683a207883eb0bb4eb" }
 primitive-types = "0.10.1"
 wait-timeout = "0.2.0"
 

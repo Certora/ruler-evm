@@ -1,5 +1,5 @@
 use crate::*;
-use rust_evm::{EVM, eval_evm, Constant, BitVar, BoolVar};
+use rust_evm::{EVM, eval_evm, Constant, BitVar, BoolVar, Type};
 use core::ops::{BitAnd};
 use primitive_types::U256;
 use rand::prelude::*;
@@ -186,64 +186,12 @@ fn evm_smt_valid(
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Type {
-  Bool, 
-  Bit256,
-}
-
-impl std::fmt::Display for Type {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Type::Bool => write!(f, "bool"),
-            Type::Bit256 => write!(f, "bit256"),
-        }
-    }
-}
-
-
 impl SynthLanguage for EVM {
     type Constant = Constant;
     type Type = Type;
 
     fn get_type(&self) -> Self::Type {
-      match self {
-        EVM::Sub(_) => Type::Bit256,
-        EVM::Div(_) => Type::Bit256,
-        EVM::BWAnd(_)=> Type::Bit256,
-        EVM::BWOr(_)=> Type::Bit256,
-        EVM::ShiftLeft(_)=> Type::Bit256,
-        EVM::ShiftRight(_)=> Type::Bit256,
-  
-        EVM::LOr(_)=> Type::Bool,
-        EVM::LAnd(_)=> Type::Bool,
-  
-        EVM::Gt(_)=> Type::Bool,
-        EVM::Ge(_)=> Type::Bool,
-        EVM::Lt(_)=> Type::Bool,
-        EVM::Le(_)=> Type::Bool,
-        EVM::BoolEq(_)=> Type::Bool,
-        EVM::BitEq(_) => Type::Bool,
-        EVM::Slt(_)=> Type::Bool,
-        EVM::Sle(_)=> Type::Bool,
-        EVM::Sgt(_)=> Type::Bool,
-        EVM::Sge(_)=> Type::Bool,
-  
-        EVM::Add(_)=> Type::Bit256,
-        EVM::Mul(_)=> Type::Bit256,
-  
-        EVM::LNot(_)=> Type::Bool,
-        EVM::BWNot(_)=> Type::Bit256,
-        EVM::Exp(_)=> Type::Bit256,
-  
-        EVM::BitIte(_)=> Type::Bit256,
-        EVM::BoolIte(_)=> Type::Bool,
-  
-        EVM::Constant(Constant::Bool(_)) => Type::Bool,
-        EVM::Constant(Constant::Num(_)) => Type::Bit256,
-        EVM::BoolVar(_)=> Type::Bool,
-        EVM::BitVar(_)=> Type::Bit256,
-      }
+      self.type_of()
     }
 
 
@@ -295,7 +243,7 @@ impl SynthLanguage for EVM {
     }
 
     fn mk_var(sym: Symbol) -> Self {
-        if sym.as_str().starts_with("bit256") {
+        if sym.as_str().starts_with("bv256") {
             EVM::BitVar(BitVar(sym))
         } else if sym.as_str().starts_with("bool") {
             EVM::BoolVar(BoolVar(sym))
@@ -339,7 +287,7 @@ impl SynthLanguage for EVM {
         egraph.add(EVM::from(false));
 
         for (i, n_vals) in cs.iter().enumerate().take(synth.params.variables) {
-            let n_id = egraph.add(EVM::BitVar(BitVar(Symbol::from("bit256".to_owned() + letter(i)))));
+            let n_id = egraph.add(EVM::BitVar(BitVar(Symbol::from("bv256".to_owned() + letter(i)))));
             egraph[n_id].data.cvec = n_vals.clone();
         }
 
